@@ -12,3 +12,11 @@ def test_app_boots_and_serves_health(client: TestClient) -> None:
 
 def test_app_exposes_openapi_schema(client: TestClient) -> None:
     assert client.get("/openapi.json").status_code == 200
+
+
+def test_metrics_endpoint_exposes_prometheus(client: TestClient) -> None:
+    client.get("/health")  # generate some traffic to record
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "# HELP" in response.text

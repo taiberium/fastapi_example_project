@@ -7,6 +7,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.person import router as person_router
 from app.core.exceptions import AlreadyExistsError
 from app.core.logging import configure_logging, get_logger
+from app.core.metrics import setup_metrics
 from app.core.settings import settings
 
 log = get_logger(__name__)
@@ -37,6 +38,9 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(person_router)
+
+    setup_metrics(app)  # exposes /metrics for Prometheus scraping
+
     log.info("application started: %s", settings.app_title)
     return app
 

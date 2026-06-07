@@ -138,7 +138,8 @@ poetry run uvicorn app.main:app --reload
 poetry run python main.py
 ```
 
-Interactive API docs: http://localhost:8000/docs · liveness: `GET /health` → `{"status":"ok"}`
+Interactive API docs: http://localhost:8000/docs · liveness: `GET /health` → `{"status":"ok"}` ·
+Prometheus metrics: `GET /metrics` (request rate/errors/latency per handler)
 
 ### Example requests
 

@@ -115,6 +115,14 @@ Notes:
 - Secrets come from settings/env (`APP_GOOGLE_CLIENT_ID`, `APP_SECRET_KEY`) — the defaults are dev-only and
   MUST be overridden in prod. Never log tokens.
 
+## Observability
+
+- `app/core/metrics.py:setup_metrics(app)` exposes Prometheus HTTP metrics at **`/metrics`**
+  (via `prometheus-fastapi-instrumentator`), wired in `create_app()`. Each app gets a fresh
+  `CollectorRegistry` so re-creating the app (tests) doesn't double-register.
+- `/metrics` is internal — scrape it with Prometheus inside the network, don't expose publicly.
+- No Prometheus/Grafana infra in-repo yet (app-side only); add docker-compose if/when needed.
+
 ## Server entrypoint
 
 - `app/server.py:run()` calls `uvicorn.run("app.main:app", ...)` with host/port from settings and reload
