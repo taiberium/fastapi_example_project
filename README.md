@@ -56,8 +56,8 @@ app/
       session.py           #   engine, SessionLocal, get_engine/get_local_session builders
       db.py                #   get_db() — the single session dependency (open → yield → close)
     repository/
-      base.py              #   generic CRUDRepository[ORMModel]: get_one/get_many/create/update/delete
-      person_repository.py #   one-line singleton: person_repository = CRUDRepository(model=Person)
+      base.py              #   generic CRUDRepository[ORMModel]: holds the Session, built per request
+      person_repository.py #   class PersonRepository(CRUDRepository[Person])
   core/                  # infrastructure bucket: settings VALUES + cross-cutting BEHAVIOR
     settings.py            #   the values: pydantic-settings BaseSettings (env-driven)
     security.py            #   JWT issue/decode + Google ID-token verification
@@ -79,7 +79,7 @@ tests/                     # pytest; conftest overrides get_db with an in-memory
 |---|---|
 | **`entities/` and `schemas/` are top-level**, not inside `persistence/` | `service` uses entities and `routes` use schemas — burying them in `persistence/` would force higher layers to reach into a lower package's internals. |
 | **Schema ↔ entity mapping only in the route** | The route is the adapter between the outer world (DTOs) and the domain (entities). `service`/`repository` stay free of Pydantic, so persistence is decoupled from the web contract. |
-| **Generic `CRUDRepository[ORMModel]`** | Near-zero boilerplate per entity: a new entity needs just `x_repository = CRUDRepository(model=X)`. Stateless — the `Session` is passed per call, so one module-level singleton is reused. |
+| **Generic `CRUDRepository[ORMModel]`** | Near-zero boilerplate per entity: a thin `class XRepository(CRUDRepository[X])` binds the model. The repository **holds the Session** and is built per request, so the Session stays a persistence detail — the service holds a repository and never sees SQLAlchemy. |
 | **`core/` is the infrastructure bucket** | "config" in the broad sense — settings *values* plus cross-cutting *behavior* (security, exceptions, logging). Inside it, keep `settings.py` (values) separate from behavior modules. Domain/business/data/routes do NOT belong here. DB engine/session stays in `persistence/db/`; request DI stays in `api/dependencies.py`. |
 | **Schema owned by Alembic, not `create_all()`** | `Base.metadata.create_all()` only creates missing tables — it silently ignores column changes. Alembic gives versioned, reversible, auditable migrations. |
 | **Centralized logging** | One `configure_logging()` at startup; every module uses `get_logger(__name__)` instead of `print`. |
@@ -188,9 +188,9 @@ delegates to it, so `python main.py` and `python -m app.server` both work.
 
 1. `app/entities/<x>.py` — the ORM model.
 2. `app/schemas/<x>.py` — `XCreate`, `XRead` (add `XUpdate` only when there's an update endpoint).
-3. `app/persistence/repository/<x>_repository.py` — `x_repository = CRUDRepository(model=X)`.
-4. `app/service/<x>_service.py` — business logic; methods take/return entities.
-5. `app/api/dependencies.py` — add `get_<x>_service`.
+3. `app/persistence/repository/<x>_repository.py` — `class XRepository(CRUDRepository[X])` binding the model.
+4. `app/service/<x>_service.py` — business logic; takes the repository; methods take/return entities.
+5. `app/api/dependencies.py` — add `get_<x>_repository(db)` and `get_<x>_service(repo)`.
 6. `app/api/routes/<x>.py` — the router; map `XCreate → entity` and `entity → XRead` here; include it in `main.py`.
 7. Import the entity in `alembic/env.py`, then `alembic revision --autogenerate` + `upgrade head`.
 8. `tests/test_<x>_api.py` — write the tests first (TDD).

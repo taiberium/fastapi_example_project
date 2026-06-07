@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.entities.user import User
 from app.core.exceptions import get_credential_exception
 from app.persistence.db.db import get_db
+from app.persistence.repository.person_repository import PersonRepository
+from app.persistence.repository.user_repository import UserRepository
 from app.core.security import decode_access_token
 from app.service.auth_service import AuthService
 from app.service.person_service import PersonService
@@ -21,12 +23,25 @@ def get_pagination_params(
     return skip, limit
 
 
-def get_person_service(db: Session = Depends(get_db)) -> PersonService:
-    return PersonService(db)
+# DI chain: get_db -> repository (holds the session) -> service (holds the repository).
+def get_person_repository(db: Session = Depends(get_db)) -> PersonRepository:
+    return PersonRepository(db)
 
 
-def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
-    return AuthService(db)
+def get_person_service(
+    repository: PersonRepository = Depends(get_person_repository),
+) -> PersonService:
+    return PersonService(repository)
+
+
+def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:
+    return UserRepository(db)
+
+
+def get_auth_service(
+    repository: UserRepository = Depends(get_user_repository),
+) -> AuthService:
+    return AuthService(repository)
 
 
 def get_current_user(

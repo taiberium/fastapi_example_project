@@ -1,7 +1,8 @@
 """Generic CRUD (Create, Read, Update, Delete) repository for ORM models.
 
 Works with ORM entities only — no Pydantic/schema coupling. Mapping from API
-schemas to entities is the service layer's job.
+schemas to entities is the service layer's job. The repository holds the
+per-request Session, so callers above it never touch SQLAlchemy directly.
 """
 
 from typing import Any, Generic, Optional, Sequence, Type, TypeVar
@@ -16,24 +17,24 @@ ORMModel = TypeVar("ORMModel")
 
 
 class CRUDRepository(Generic[ORMModel]):
-    """Stateless CRUD operations bound to a single ORM model.
+    """CRUD operations bound to a single ORM model and a Session.
 
-    The session is passed per call so one instance can be reused as a
-    module-level singleton (see person_repository.py).
+    Constructed per request (the Session is request-scoped) — not a singleton.
     """
 
-    def __init__(self, model: Type[ORMModel]) -> None:
+    def __init__(self, model: Type[ORMModel], session: Session) -> None:
         self._model = model
+        self._session = session
 
-    def get_one(self, db: Session, *args, **kwargs) -> Optional[ORMModel]:
+    def get_one(self, *args, **kwargs) -> Optional[ORMModel]:
         # *args -> filter(...) for expressions, **kwargs -> filter_by(...) for equality.
-        return db.query(self._model).filter(*args).filter_by(**kwargs).first()
+        return self._session.query(self._model).filter(*args).filter_by(**kwargs).first()
 
     def get_many(
-        self, db: Session, *args, skip: int = 0, limit: int = 100, **kwargs
+        self, *args, skip: int = 0, limit: int = 100, **kwargs
     ) -> Sequence[ORMModel]:
         return (
-            db.query(self._model)
+            self._session.query(self._model)
             .filter(*args)
             .filter_by(**kwargs)
             .offset(skip)
@@ -41,26 +42,24 @@ class CRUDRepository(Generic[ORMModel]):
             .all()
         )
 
-    def create(self, db: Session, db_obj: ORMModel) -> ORMModel:
+    def create(self, db_obj: ORMModel) -> ORMModel:
         log.debug("creating %s", self._model.__name__)
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        self._session.add(db_obj)
+        self._session.commit()
+        self._session.refresh(db_obj)
         return db_obj
 
-    def update(
-        self, db: Session, db_obj: ORMModel, values: dict[str, Any]
-    ) -> ORMModel:
+    def update(self, db_obj: ORMModel, values: dict[str, Any]) -> ORMModel:
         log.debug("updating %s with %s", self._model.__name__, values)
         for field, value in values.items():
             setattr(db_obj, field, value)
-        db.add(db_obj)
-        db.commit()
-        db.refresh(db_obj)
+        self._session.add(db_obj)
+        self._session.commit()
+        self._session.refresh(db_obj)
         return db_obj
 
-    def delete(self, db: Session, db_obj: ORMModel) -> ORMModel:
+    def delete(self, db_obj: ORMModel) -> ORMModel:
         log.debug("deleting %s", self._model.__name__)
-        db.delete(db_obj)
-        db.commit()
+        self._session.delete(db_obj)
+        self._session.commit()
         return db_obj

@@ -42,9 +42,9 @@ app/
       session.py         # engine, SessionLocal, get_engine/get_local_session builders
       db.py              # get_db() generator dependency
     repository/
-      base.py            # generic CRUDRepository
-      person_repository.py # singleton: person_repository = CRUDRepository(model=Person)
-      user_repository.py
+      base.py            # generic CRUDRepository[ORMModel] — holds the Session, built per request
+      person_repository.py # class PersonRepository(CRUDRepository[Person])
+      user_repository.py   # class UserRepository(CRUDRepository[User])
   core/                # infrastructure bucket (NOT just settings values)
     settings.py          #   the VALUES: pydantic-settings BaseSettings (env-driven)
     security.py          #   JWT issue/decode + Google ID-token verification
@@ -71,18 +71,23 @@ Notes:
 
 - `app/persistence/repository/base.py` holds a generic `CRUDRepository[ORMModel]` (generic in the ORM model
   only) with `get_one`, `get_many`, `create`, `update`, `delete`.
-- Repositories are **stateless** — the `db: Session` is passed per method call, never stored on the instance.
-- **No schema coupling**: `create(db, db_obj)` takes a ready **entity**; `update(db, db_obj, values: dict)` takes a
-  plain dict of fields. The **route** builds the entity from a schema (`Entity(**data.model_dump())`) and passes
-  the entity through the service — neither service nor repo imports Pydantic schemas.
+- **The repository holds the Session** (`__init__(self, model, session)`) and is constructed **per request** —
+  NOT a singleton. This keeps the Session a persistence detail: layers above the repository never touch SQLAlchemy.
+- Each entity gets a thin subclass that binds the model: `class PersonRepository(CRUDRepository[Person])` with
+  `__init__(self, session): super().__init__(Person, session)`. Entity-specific queries live there — that's the
+  reason the subclass exists (e.g. `PersonRepository.find_by_email`, built on the generic `get_one`).
+- **No schema coupling**: `create(db_obj)` takes a ready **entity**; `update(db_obj, values: dict)` takes a
+  plain dict of fields. The **route** builds the entity from a schema (`Entity(**data.model_dump())`) — neither
+  service nor repo imports Pydantic schemas.
 - `*args` → `.filter(...)` (expressions like `Person.age < age`); `**kwargs` → `.filter_by(...)` (equality).
-- Each entity = one **module-level singleton**: `person_repository = CRUDRepository(model=Person)` (no schema
-  type params — gymhero style).
 
 ## Database / sessions
 
 - `get_db()` (in `app/persistence/db/db.py`) is the only session dependency: `db = SessionLocal(); try: yield db; finally: db.close()`.
-- Inject it via `Depends(get_db)` — never create a `Session()` ad hoc inside services/repositories.
+- **DI chain**: `get_db` → `get_<x>_repository(db)` (builds the repo with the session) → `get_<x>_service(repo)`
+  (builds the service with the repo). The **service holds a repository, never a `Session`**; only the
+  repository factory in `api/dependencies.py` references `Session`.
+- Never create a `Session()` ad hoc inside services/repositories — always flow from `get_db`.
 - `Base` lives in `app/persistence/db/base_class.py` (avoids circular imports between entities and the engine).
 - Use SQLAlchemy 2.0 typed style in entities: `Mapped[...]` + `mapped_column(...)`.
 
@@ -145,9 +150,9 @@ Notes:
 
 1. `entities/<x>.py` — ORM model.
 2. `schemas/<x>.py` — `XCreate`, `XRead` (add `XUpdate` only if there's an update endpoint).
-3. `persistence/repository/<x>_repository.py` — `x_repository = CRUDRepository(model=X)`.
-4. `service/<x>_service.py` — business logic, takes a `Session`; methods accept/return **entities** (no schemas).
-5. `api/dependencies.py` — add `get_<x>_service`.
+3. `persistence/repository/<x>_repository.py` — `class XRepository(CRUDRepository[X])` binding the model.
+4. `service/<x>_service.py` — business logic, takes the **repository**; methods accept/return **entities** (no Session, no schemas).
+5. `api/dependencies.py` — add `get_<x>_repository(db)` and `get_<x>_service(repo)`.
 6. `api/routes/<x>.py` — router; maps `XCreate → entity` and `entity → XRead` here; include it in `main.py`.
 7. `tests/test_<x>_api.py` — write tests FIRST (TDD).
 

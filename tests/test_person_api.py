@@ -39,3 +39,21 @@ def test_find_rejects_negative_age_query(client: TestClient) -> None:
     response = client.get("/persons", params={"age": -5})
 
     assert response.status_code == 422
+
+
+def test_find_by_email_returns_person(client: TestClient) -> None:
+    client.post(
+        "/persons",
+        json={"name": "Eve", "age": 28, "email": "eve@example.com"},
+    )
+
+    response = client.get("/persons/by-email", params={"email": "eve@example.com"})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Eve"
+
+
+def test_find_by_email_returns_404_when_absent(client: TestClient) -> None:
+    response = client.get("/persons/by-email", params={"email": "nobody@example.com"})
+
+    assert response.status_code == 404
