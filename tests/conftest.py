@@ -6,14 +6,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.persistence.db.base_class import Base
-from app.persistence.db.db import get_db
 from app.entities import person, user  # noqa: F401  registers tables on Base
 from app.main import create_app
+from app.persistence.db.base_class import Base
+from app.persistence.db.db import get_db
 
 
 def _make_test_sessionmaker() -> sessionmaker:
-    # Fresh in-memory SQLite (shared across connections via StaticPool) with tables created.
+    # Fresh in-memory SQLite (shared via StaticPool), tables created.
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},

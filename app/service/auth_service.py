@@ -19,7 +19,7 @@ class AuthService:
         Returns None if the token is invalid, unverified, or missing required claims.
         """
         claims = security.verify_google_id_token(id_token)
-        if not self._claims_are_usable(claims):
+        if claims is None or not self._claims_are_complete(claims):
             log.info("google login rejected: invalid/unverified/incomplete token")
             return None
 
@@ -32,14 +32,11 @@ class AuthService:
         return self._repository.get_one(User.id == user_id)
 
     @staticmethod
-    def _claims_are_usable(claims: dict | None) -> bool:
-        # Require a verified email and the identifying claims so we never index a
-        # missing key, and never trust an unverified Google email.
+    def _claims_are_complete(claims: dict) -> bool:
+        # Require the identifying claims plus a verified email, so we never index a
+        # missing key and never trust an unverified Google email.
         return bool(
-            claims
-            and claims.get("sub")
-            and claims.get("email")
-            and claims.get("email_verified")
+            claims.get("sub") and claims.get("email") and claims.get("email_verified")
         )
 
     def _get_or_create(self, claims: dict) -> User:

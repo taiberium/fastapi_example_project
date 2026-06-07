@@ -5,7 +5,8 @@ schemas to entities is the service layer's job. The repository holds the
 per-request Session, so callers above it never touch SQLAlchemy directly.
 """
 
-from typing import Any, Generic, Optional, Sequence, Type, TypeVar
+from collections.abc import Sequence
+from typing import Any, Generic, TypeVar
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -24,11 +25,11 @@ class CRUDRepository(Generic[ORMModel]):
     Constructed per request (the Session is request-scoped) — not a singleton.
     """
 
-    def __init__(self, model: Type[ORMModel], session: Session) -> None:
+    def __init__(self, model: type[ORMModel], session: Session) -> None:
         self._model = model
         self._session = session
 
-    def get_one(self, *args, **kwargs) -> Optional[ORMModel]:
+    def get_one(self, *args, **kwargs) -> ORMModel | None:
         # *args -> filter(...) for expressions, **kwargs -> filter_by(...) for equality.
         return self._session.query(self._model).filter(*args).filter_by(**kwargs).first()
 

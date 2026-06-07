@@ -26,7 +26,9 @@ def create_app() -> FastAPI:
     )
 
     @app.exception_handler(AlreadyExistsError)
-    async def _already_exists_handler(_: Request, exc: AlreadyExistsError) -> JSONResponse:
+    async def _already_exists_handler(
+        _: Request, exc: AlreadyExistsError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"detail": "Resource already exists"},

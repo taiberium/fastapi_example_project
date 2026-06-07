@@ -1,15 +1,13 @@
-from typing import Tuple
-
 from fastapi import Depends, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.entities.user import User
 from app.core.exceptions import get_credential_exception
+from app.core.security import decode_access_token
+from app.entities.user import User
 from app.persistence.db.db import get_db
 from app.persistence.repository.person_repository import PersonRepository
 from app.persistence.repository.user_repository import UserRepository
-from app.core.security import decode_access_token
 from app.service.auth_service import AuthService
 from app.service.person_service import PersonService
 
@@ -18,7 +16,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_pagination_params(
     skip: int = Query(0, ge=0), limit: int = Query(10, gt=0)
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """Return (skip, limit) pagination parameters from the query string."""
     return skip, limit
 
@@ -59,7 +57,7 @@ def get_current_user(
     try:
         user_id = int(payload["sub"])
     except (TypeError, ValueError):
-        raise get_credential_exception()
+        raise get_credential_exception() from None
 
     user = auth_service.get_user_by_id(user_id)
     if user is None:

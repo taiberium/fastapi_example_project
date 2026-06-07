@@ -34,7 +34,9 @@ def test_save_person_rejects_negative_age(client: TestClient) -> None:
 
 
 def test_find_returns_only_persons_younger_than_age(client: TestClient) -> None:
-    client.post("/persons", json={"name": "Young", "age": 20, "email": "young@example.com"})
+    client.post(
+        "/persons", json={"name": "Young", "age": 20, "email": "young@example.com"}
+    )
     client.post("/persons", json={"name": "Old", "age": 40, "email": "old@example.com"})
 
     response = client.get("/persons", params={"age": 30})

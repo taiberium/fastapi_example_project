@@ -95,6 +95,18 @@ tests/                     # pytest; conftest overrides get_db with an in-memory
 
 ```bash
 poetry install
+poetry run pre-commit install   # enable lint/format/type hooks on commit
+```
+
+## Code quality
+
+`ruff` (lint + format), `mypy` (types), and `pre-commit` (runs them on every commit):
+
+```bash
+poetry run ruff check --fix .     # lint + autofix
+poetry run ruff format .          # format (replaces black)
+poetry run mypy app               # type-check
+poetry run pre-commit run --all-files
 ```
 
 ## Database migrations (Alembic)

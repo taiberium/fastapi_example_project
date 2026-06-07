@@ -1,6 +1,6 @@
 """Security primitives: app JWT session tokens + Google ID-token verification."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from google.auth.exceptions import GoogleAuthError
@@ -15,7 +15,7 @@ def create_access_token(
     subject: str | int, expires_delta: timedelta | None = None
 ) -> str:
     """Issue a signed JWT session token for the given subject (user id)."""
-    expire = datetime.now(timezone.utc) + (
+    expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
     to_encode = {"exp": expire, "sub": str(subject)}

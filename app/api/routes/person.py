@@ -1,5 +1,3 @@
-from typing import Tuple
-
 from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies import get_pagination_params, get_person_service
@@ -24,7 +22,7 @@ async def save(
 @router.get("", response_model=list[PersonRead])
 async def find(
     age: int = Query(ge=0),
-    pagination: Tuple[int, int] = Depends(get_pagination_params),
+    pagination: tuple[int, int] = Depends(get_pagination_params),
     service: PersonService = Depends(get_person_service),
 ) -> list[PersonRead]:
     skip, limit = pagination

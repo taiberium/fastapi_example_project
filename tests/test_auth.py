@@ -43,9 +43,7 @@ def test_me_requires_authentication(client: TestClient) -> None:
 
 
 def test_me_rejects_garbage_token(client: TestClient) -> None:
-    response = client.get(
-        "/auth/me", headers={"Authorization": "Bearer not-a-jwt"}
-    )
+    response = client.get("/auth/me", headers={"Authorization": "Bearer not-a-jwt"})
     assert response.status_code == 401
 
 

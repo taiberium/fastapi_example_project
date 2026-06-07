@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from app.api.dependencies import get_auth_service, get_current_active_user
-from app.entities.user import User
 from app.core.exceptions import get_credential_exception
+from app.entities.user import User
 from app.schemas.auth import GoogleLoginRequest, Token, UserRead
 from app.service.auth_service import AuthService
 

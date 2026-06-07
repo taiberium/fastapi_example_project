@@ -159,13 +159,24 @@ Notes:
 ## Workflow rules
 
 - **TDD**: write tests before the implementation. Tests define expected behavior.
-- Before marking any feature done: import-check the app, run `poetry run pytest` (all green), verify locally.
+- Before marking any feature done: `ruff check` + `mypy app` + `poetry run pytest` (all green), verify locally.
 - Use **poetry** for dependency management. Type-hint everything.
 - Comments only where the code isn't self-explanatory — short as possible.
 - Config goes only in `app/core/`; secrets in config files, never in infra.
 
+## Tooling (quality gates)
+
+- **ruff** = linter + formatter (replaces flake8/isort/black). Config in `[tool.ruff]`.
+  FastAPI's `Depends`/`Query` are allow-listed for B008 (DI idiom is fine).
+- **mypy** = type checker. Config in `[tool.mypy]` (pydantic plugin on; alembic ignored).
+- **pre-commit** runs ruff + ruff-format + mypy on every commit (`.pre-commit-config.yaml`).
+  Run `poetry run pre-commit install` once after cloning.
+
 ## Commands
 
-- Install: `poetry install`
+- Install: `poetry install && poetry run pre-commit install`
 - Run: `poetry run uvicorn app.main:app --reload` (or `python main.py`)
 - Test: `poetry run pytest -q`
+- Lint/format: `poetry run ruff check --fix . && poetry run ruff format .`
+- Types: `poetry run mypy app`
+- All hooks: `poetry run pre-commit run --all-files`

@@ -1,0 +1,20 @@
+# Run with: poetry run pre-commit install   (then hooks run on every git commit)
+# One-off across all files: poetry run pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      - id: ruff-check    # lint, with autofix
+        args: [--fix]
+      - id: ruff-format   # formatter (replaces black)
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.1.0
+    hooks:
+      - id: mypy
+        # Type-check the app package; pass deps so imports resolve.
+        files: ^app/
+        additional_dependencies:
+          - pydantic
+          - pydantic-settings
+          - sqlalchemy[mypy]
