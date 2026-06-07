@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.persistence.db.base_class import Base
 from app.persistence.db.db import get_db
-from app.entities import person  # noqa: F401  registers the Person table on Base
+from app.entities import person, user  # noqa: F401  registers tables on Base
 from app.main import create_app
 
 

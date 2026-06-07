@@ -2,7 +2,7 @@ from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
-from app.config.logging import get_logger
+from app.core.logging import get_logger
 from app.persistence.db.session import SessionLocal
 
 log = get_logger(__name__)

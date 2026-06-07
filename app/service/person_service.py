@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.orm import Session
 
-from app.config.logging import get_logger
+from app.core.logging import get_logger
 from app.entities.person import Person
 from app.persistence.repository.person_repository import person_repository
 

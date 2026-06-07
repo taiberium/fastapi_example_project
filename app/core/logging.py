@@ -1,7 +1,7 @@
 import logging
 from logging.config import dictConfig
 
-from app.config.settings import settings
+from app.core.settings import settings
 
 _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 

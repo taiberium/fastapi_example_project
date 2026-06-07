@@ -31,11 +31,11 @@ holds only the storage infrastructure (`db/`) and data access (`repository/`).
 ```
 app/
   api/
-    dependencies.py      # shared deps: get_pagination_params, get_<x>_service
-    routes/              # one router file per entity (person.py, ...)
-  service/               # one service per entity (PersonService)
-  entities/              # SQLAlchemy ORM models — shared domain, used by service + repository
-  schemas/               # Pydantic DTOs: <X>Create, <X>Update, <X>Read
+    dependencies.py      # shared deps: pagination, get_<x>_service, get_current_user chain
+    routes/              # one router file per entity (person.py, auth.py, ...)
+  service/               # business logic (PersonService, AuthService)
+  entities/              # SQLAlchemy ORM models — shared domain (person.py, user.py)
+  schemas/               # Pydantic DTOs (person.py, auth.py)
   persistence/           # storage layer only
     db/
       base_class.py      # Base (DeclarativeBase) only
@@ -43,19 +43,29 @@ app/
       db.py              # get_db() generator dependency
     repository/
       base.py            # generic CRUDRepository
-      person_repository.py # singleton: person_repository = CRUDRepository[...](model=Person)
-  config/
-    settings.py          # pydantic-settings BaseSettings — ONLY app config lives here, nothing else
+      person_repository.py # singleton: person_repository = CRUDRepository(model=Person)
+      user_repository.py
+  core/                # infrastructure bucket (NOT just settings values)
+    settings.py          #   the VALUES: pydantic-settings BaseSettings (env-driven)
+    security.py          #   JWT issue/decode + Google ID-token verification
+    exceptions.py        #   HTTPException helpers + app exceptions
+    logging.py           #   configure_logging() + get_logger()
+  server.py              # uvicorn runner (host/port/reload from settings)
   main.py                # create_app() factory, includes routers
-main.py                  # uvicorn entrypoint → app.main:app
+main.py                  # entrypoint → delegates to app.server.run()
+alembic/                 # migrations (env.py wired to settings + Base.metadata)
 tests/                   # pytest; conftest overrides get_db with in-memory sqlite
 ```
 
 Notes:
 - `entities/` is top-level because `service/` references entities — a layer must not reach into
   `persistence/` internals to get them.
-- `config/` holds settings only. Infrastructure (engine/session) and DI wiring are NOT config —
-  they live in `persistence/db/` and `api/dependencies.py` respectively.
+- **`core/` is the infrastructure bucket** (broad sense of "config" = how the app is configured/assembled):
+  settings VALUES + cross-cutting BEHAVIOR (security, exceptions, logging). The one rule inside it: keep
+  `settings.py` (values, from env) clearly separate from the behavior modules. What does NOT belong in
+  `core/`: domain (`entities`), business logic (`service`), data access (`persistence`), routes (`api`).
+- DB infrastructure (engine/session) stays in `persistence/db/`; request DI wiring stays in
+  `api/dependencies.py` — those are layer-specific, not app-wide config.
 
 ## Repository pattern (generic CRUD)
 
@@ -86,9 +96,37 @@ Notes:
 - Schemas are imported in `routes` ONLY — never in `service` or `repository`. The route owns both directions
   of the schema ↔ entity mapping.
 
+## Authentication & security
+
+- **Google OAuth2** is the auth model (per the user's global default), NOT password login.
+  Flow: frontend Google Sign-In → sends Google **ID token** → `POST /auth/google` →
+  `app/core/security.py:verify_google_id_token` validates it against `settings.google_client_id` →
+  `AuthService` get-or-creates the `User` from the verified claims → issues an **app JWT** session token.
+- `app/core/security.py` owns crypto: `create_access_token` / `decode_access_token` (jose JWT, `settings.secret_key`)
+  and `verify_google_id_token` (google-auth). No passwords / no bcrypt.
+- Protected endpoints depend on the chain in `api/dependencies.py`:
+  `get_current_user` → `get_current_active_user` → `get_current_superuser` (HTTPBearer → decode JWT → load user).
+- HTTP error helpers live in `app/core/exceptions.py` (`get_credential_exception`, `get_not_found_exception`).
+- Secrets come from settings/env (`APP_GOOGLE_CLIENT_ID`, `APP_SECRET_KEY`) — the defaults are dev-only and
+  MUST be overridden in prod. Never log tokens.
+
+## Server entrypoint
+
+- `app/server.py:run()` calls `uvicorn.run("app.main:app", ...)` with host/port from settings and reload
+  enabled when `settings.env` is `dev`/`test`. Root `main.py` just delegates to it.
+
+## Migrations (Alembic)
+
+- The schema is owned by **Alembic**, NOT by the app. `create_app()` does NOT call `create_all()`.
+- `alembic/env.py` reads `settings.database_url` and targets `Base.metadata` — never hardcode the URL in
+  `alembic.ini`. Import every entity in `env.py` so autogenerate sees its table.
+- Workflow after changing an ORM model: `alembic revision --autogenerate -m "..."` → review the file →
+  `alembic upgrade head`. Always read the generated migration before applying (autogenerate is not perfect).
+- Tests don't use Alembic — `conftest` builds an in-memory schema via `Base.metadata.create_all` on its own engine.
+
 ## Logging
 
-- Config lives in `app/config/logging.py`: `configure_logging()` (root handler + format, level from
+- Config lives in `app/core/logging.py`: `configure_logging()` (root handler + format, level from
   `settings.log_level`) and `get_logger(name)`. Called once in `create_app()`.
 - Every module gets `log = get_logger(__name__)`. Use it instead of `print`.
 - Levels by layer: **service** logs business operations at `INFO`; **repository** and **db** session log at
@@ -119,7 +157,7 @@ Notes:
 - Before marking any feature done: import-check the app, run `poetry run pytest` (all green), verify locally.
 - Use **poetry** for dependency management. Type-hint everything.
 - Comments only where the code isn't self-explanatory — short as possible.
-- Config goes only in `app/config/`; secrets in config files, never in infra.
+- Config goes only in `app/core/`; secrets in config files, never in infra.
 
 ## Commands
 

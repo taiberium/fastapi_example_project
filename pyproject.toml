@@ -12,6 +12,10 @@ uvicorn = "^0.22.0"
 fastapi = "^0.100.0"
 sqlalchemy = "^2.0.18"
 pydantic-settings = "^2.0.0"
+alembic = "^1.18.4"
+google-auth = "^2.53.0"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
+requests = "^2.34.2"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -8,7 +8,7 @@ from typing import Any, Generic, Optional, Sequence, Type, TypeVar
 
 from sqlalchemy.orm import Session
 
-from app.config.logging import get_logger
+from app.core.logging import get_logger
 
 log = get_logger(__name__)
 
