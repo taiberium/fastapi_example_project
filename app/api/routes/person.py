@@ -34,7 +34,7 @@ async def find(
 
 @router.get("/by-email", response_model=PersonRead)
 async def find_by_email(
-    email: str = Query(...),
+    email: str,
     service: PersonService = Depends(get_person_service),
 ) -> PersonRead:
     person = service.find_by_email(email)

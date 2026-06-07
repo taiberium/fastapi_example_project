@@ -1,4 +1,5 @@
 from app.core import security
+from app.core.exceptions import AlreadyExistsError
 from app.core.logging import get_logger
 from app.entities.user import User
 from app.persistence.repository.user_repository import UserRepository
@@ -15,11 +16,11 @@ class AuthService:
     def login_with_google(self, id_token: str) -> tuple[User, str] | None:
         """Verify a Google ID token, provision the user, return (user, app JWT).
 
-        Returns None if the Google token is invalid.
+        Returns None if the token is invalid, unverified, or missing required claims.
         """
         claims = security.verify_google_id_token(id_token)
-        if claims is None:
-            log.info("google login rejected: invalid id token")
+        if not self._claims_are_usable(claims):
+            log.info("google login rejected: invalid/unverified/incomplete token")
             return None
 
         user = self._get_or_create(claims)
@@ -30,14 +31,33 @@ class AuthService:
     def get_user_by_id(self, user_id: int) -> User | None:
         return self._repository.get_one(User.id == user_id)
 
+    @staticmethod
+    def _claims_are_usable(claims: dict | None) -> bool:
+        # Require a verified email and the identifying claims so we never index a
+        # missing key, and never trust an unverified Google email.
+        return bool(
+            claims
+            and claims.get("sub")
+            and claims.get("email")
+            and claims.get("email_verified")
+        )
+
     def _get_or_create(self, claims: dict) -> User:
         user = self._repository.get_one(User.google_sub == claims["sub"])
         if user is not None:
             return user
         # First sign-in: provision a user from the verified Google identity.
-        user = User(
+        new_user = User(
             email=claims["email"],
             google_sub=claims["sub"],
             full_name=claims.get("name", ""),
         )
-        return self._repository.create(user)
+        try:
+            return self._repository.create(new_user)
+        except AlreadyExistsError:
+            # A concurrent first sign-in won the race; the session was rolled back,
+            # so re-fetch the now-existing user by the same identity.
+            existing = self._repository.get_one(User.google_sub == claims["sub"])
+            if existing is None:
+                raise  # genuine conflict (e.g. email already used by another account)
+            return existing

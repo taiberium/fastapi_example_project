@@ -53,7 +53,7 @@ app/
   persistence/             # the storage layer, grouped under one parent
     db/
       base_class.py        #   Base (DeclarativeBase) — kept alone to avoid circular imports
-      session.py           #   engine, SessionLocal, get_engine/get_local_session builders
+      session.py           #   engine, SessionLocal, get_engine builder
       db.py                #   get_db() — the single session dependency (open → yield → close)
     repository/
       base.py              #   generic CRUDRepository[ORMModel]: holds the Session, built per request
@@ -126,7 +126,7 @@ poetry run uvicorn app.main:app --reload
 poetry run python main.py
 ```
 
-Interactive API docs: http://localhost:8000/docs
+Interactive API docs: http://localhost:8000/docs · liveness: `GET /health` → `{"status":"ok"}`
 
 ### Example requests
 
@@ -176,6 +176,7 @@ Settings come from `app/core/settings.py` (pydantic-settings). Override via `APP
 | `env`           | `APP_ENV`           | `dev` (enables reload)     |
 | `server_host`   | `APP_SERVER_HOST`   | `0.0.0.0`                  |
 | `server_port`   | `APP_SERVER_PORT`   | `8000`                     |
+| `cors_origins`  | `APP_CORS_ORIGINS`  | localhost:5173 / :3000     |
 | `google_client_id` | `APP_GOOGLE_CLIENT_ID` | `""` (set in prod)    |
 | `secret_key`    | `APP_SECRET_KEY`    | dev placeholder — **override in prod** |
 | `algorithm`     | `APP_ALGORITHM`     | `HS256`                    |

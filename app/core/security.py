@@ -30,6 +30,10 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return None
 
 
+# Reused across logins so each request doesn't allocate a new HTTP transport/pool.
+_google_request = google_requests.Request()
+
+
 def verify_google_id_token(token: str) -> dict[str, Any] | None:
     """Verify a Google ID token against our client id. Returns claims or None.
 
@@ -37,7 +41,7 @@ def verify_google_id_token(token: str) -> dict[str, Any] | None:
     """
     try:
         return google_id_token.verify_oauth2_token(
-            token, google_requests.Request(), settings.google_client_id
+            token, _google_request, settings.google_client_id
         )
     except (ValueError, GoogleAuthError):
         return None

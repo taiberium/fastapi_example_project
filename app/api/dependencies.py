@@ -56,7 +56,12 @@ def get_current_user(
     if payload is None or payload.get("sub") is None:
         raise get_credential_exception()
 
-    user = auth_service.get_user_by_id(int(payload["sub"]))
+    try:
+        user_id = int(payload["sub"])
+    except (TypeError, ValueError):
+        raise get_credential_exception()
+
+    user = auth_service.get_user_by_id(user_id)
     if user is None:
         raise get_credential_exception(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"

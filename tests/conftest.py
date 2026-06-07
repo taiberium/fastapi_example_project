@@ -12,16 +12,20 @@ from app.entities import person, user  # noqa: F401  registers tables on Base
 from app.main import create_app
 
 
-@pytest.fixture()
-def db_session() -> Generator[Session, None, None]:
-    # Isolated in-memory session for testing repositories directly.
+def _make_test_sessionmaker() -> sessionmaker:
+    # Fresh in-memory SQLite (shared across connections via StaticPool) with tables created.
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     Base.metadata.create_all(bind=engine)
-    session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
+    return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+@pytest.fixture()
+def db_session() -> Generator[Session, None, None]:
+    session = _make_test_sessionmaker()()
     try:
         yield session
     finally:
@@ -30,14 +34,7 @@ def db_session() -> Generator[Session, None, None]:
 
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
-    # In-memory SQLite shared across connections via StaticPool, isolated per test.
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
-    TestSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    TestSession = _make_test_sessionmaker()
 
     def override_get_db() -> Generator[Session, None, None]:
         session = TestSession()

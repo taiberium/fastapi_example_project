@@ -12,7 +12,9 @@ from app.entities import person, user  # noqa: F401  registers tables on Base
 from app.persistence.db.base_class import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# NOTE: the URL is NOT written via config.set_main_option — that routes it through
+# ConfigParser, whose % interpolation crashes on URL-encoded passwords (e.g. p%40ss).
+# It is injected directly into the engine config below / passed to context.configure.
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -34,8 +36,11 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode (connect to the DB)."""
+    configuration = config.get_section(config.config_ini_section, {})
+    # Set the URL on the plain dict (post-interpolation) so '%' in the password is safe.
+    configuration["sqlalchemy.url"] = settings.database_url
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

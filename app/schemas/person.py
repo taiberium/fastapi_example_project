@@ -1,10 +1,10 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class PersonCreate(BaseModel):
     name: str
     age: int = Field(ge=0)
-    email: str
+    email: EmailStr  # validates email format at the API boundary
 
 
 class PersonRead(BaseModel):

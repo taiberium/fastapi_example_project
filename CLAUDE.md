@@ -39,7 +39,7 @@ app/
   persistence/           # storage layer only
     db/
       base_class.py      # Base (DeclarativeBase) only
-      session.py         # engine, SessionLocal, get_engine/get_local_session builders
+      session.py         # engine, SessionLocal, get_engine builder
       db.py              # get_db() generator dependency
     repository/
       base.py            # generic CRUDRepository[ORMModel] — holds the Session, built per request

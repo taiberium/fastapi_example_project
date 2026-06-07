@@ -7,8 +7,10 @@ per-request Session, so callers above it never touch SQLAlchemy directly.
 
 from typing import Any, Generic, Optional, Sequence, Type, TypeVar
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import AlreadyExistsError
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -45,7 +47,7 @@ class CRUDRepository(Generic[ORMModel]):
     def create(self, db_obj: ORMModel) -> ORMModel:
         log.debug("creating %s", self._model.__name__)
         self._session.add(db_obj)
-        self._session.commit()
+        self._commit()
         self._session.refresh(db_obj)
         return db_obj
 
@@ -54,12 +56,21 @@ class CRUDRepository(Generic[ORMModel]):
         for field, value in values.items():
             setattr(db_obj, field, value)
         self._session.add(db_obj)
-        self._session.commit()
+        self._commit()
         self._session.refresh(db_obj)
         return db_obj
 
     def delete(self, db_obj: ORMModel) -> ORMModel:
         log.debug("deleting %s", self._model.__name__)
         self._session.delete(db_obj)
-        self._session.commit()
+        self._commit()
         return db_obj
+
+    def _commit(self) -> None:
+        # Roll back on a failed commit so the session stays usable; surface unique
+        # violations as a domain error instead of leaking IntegrityError upward.
+        try:
+            self._session.commit()
+        except IntegrityError as exc:
+            self._session.rollback()
+            raise AlreadyExistsError(str(exc.orig)) from exc

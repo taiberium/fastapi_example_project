@@ -19,5 +19,8 @@ def get_not_found_exception(detail: str = "Resource not found") -> HTTPException
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 
-class SQLAlchemyException(Exception):
-    """Raised when a database operation fails at the persistence layer."""
+class AlreadyExistsError(Exception):
+    """A unique-constraint violation, raised by the repository on conflicting writes.
+
+    Translated to HTTP 409 by the handler registered in app.main.
+    """

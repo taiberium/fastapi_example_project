@@ -15,6 +15,15 @@ def test_save_person_returns_created_person(client: TestClient) -> None:
     assert body["email"] == "alice@example.com"
 
 
+def test_save_person_rejects_malformed_email(client: TestClient) -> None:
+    response = client.post(
+        "/persons",
+        json={"name": "Bad", "age": 20, "email": "not-an-email"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_save_person_rejects_negative_age(client: TestClient) -> None:
     response = client.post(
         "/persons",
@@ -57,3 +66,12 @@ def test_find_by_email_returns_404_when_absent(client: TestClient) -> None:
     response = client.get("/persons/by-email", params={"email": "nobody@example.com"})
 
     assert response.status_code == 404
+
+
+def test_duplicate_email_returns_409(client: TestClient) -> None:
+    body = {"name": "Dup", "age": 31, "email": "dup@example.com"}
+    assert client.post("/persons", json=body).status_code == 201
+
+    response = client.post("/persons", json={**body, "name": "Other"})
+
+    assert response.status_code == 409
