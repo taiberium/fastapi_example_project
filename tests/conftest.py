@@ -6,7 +6,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.entities import person, user  # noqa: F401  registers tables on Base
+from app.entities import (  # noqa: F401  registers tables on Base
+    membership,
+    person,
+    user,
+)
 from app.main import create_app
 from app.persistence.db.base_class import Base
 from app.persistence.db.db import get_db

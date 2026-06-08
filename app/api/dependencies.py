@@ -6,6 +6,7 @@ from app.core.exceptions import get_credential_exception
 from app.core.security import decode_access_token
 from app.entities.user import User
 from app.persistence.db.db import get_db
+from app.persistence.repository.membership_repository import MembershipRepository
 from app.persistence.repository.person_repository import PersonRepository
 from app.persistence.repository.user_repository import UserRepository
 from app.service.auth_service import AuthService
@@ -26,10 +27,16 @@ def get_person_repository(db: Session = Depends(get_db)) -> PersonRepository:
     return PersonRepository(db)
 
 
+def get_membership_repository(db: Session = Depends(get_db)) -> MembershipRepository:
+    return MembershipRepository(db)
+
+
 def get_person_service(
     repository: PersonRepository = Depends(get_person_repository),
+    membership_repository: MembershipRepository = Depends(get_membership_repository),
 ) -> PersonService:
-    return PersonService(repository)
+    # Service composes two repositories — it joins Person + Membership itself.
+    return PersonService(repository, membership_repository)
 
 
 def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:

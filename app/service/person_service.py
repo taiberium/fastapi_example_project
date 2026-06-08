@@ -1,17 +1,40 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from app.core.logging import get_logger
+from app.entities.membership import Membership
 from app.entities.person import Person
+from app.persistence.repository.membership_repository import MembershipRepository
 from app.persistence.repository.person_repository import PersonRepository
 
 log = get_logger(__name__)
+
+_PREMIUM_TIERS = {"pro", "enterprise"}
+
+
+@dataclass(frozen=True)
+class PersonOverview:
+    """Service-level aggregate combining a Person with its Membership.
+
+    Built by joining two repositories in the service (not a DB join), with a
+    derived `is_premium` flag — the business logic that justifies this layer.
+    """
+
+    person: Person
+    membership: Membership | None
+    is_premium: bool
 
 
 class PersonService:
     """Business logic for persons. Operates on entities — no Session, no schemas here."""
 
-    def __init__(self, repository: PersonRepository) -> None:
+    def __init__(
+        self,
+        repository: PersonRepository,
+        membership_repository: MembershipRepository,
+    ) -> None:
         self._repository = repository
+        self._memberships = membership_repository
 
     def create(self, person: Person) -> Person:
         log.info("creating person email=%s", person.email)
@@ -26,3 +49,17 @@ class PersonService:
     def find_by_email(self, email: str) -> Person | None:
         log.info("finding person by email=%s", email)
         return self._repository.find_by_email(email)
+
+    def get_overview(self, person_id: int) -> PersonOverview | None:
+        # Combine Person + Membership here (two repositories, one aggregate).
+        person = self._repository.get_one(Person.id == person_id)
+        if person is None:
+            return None
+        membership = self._memberships.find_by_person_id(person_id)
+        is_premium = (
+            membership is not None
+            and membership.is_active
+            and membership.tier in _PREMIUM_TIERS
+        )
+        log.info("person overview id=%s premium=%s", person_id, is_premium)
+        return PersonOverview(person=person, membership=membership, is_premium=is_premium)

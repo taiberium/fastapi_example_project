@@ -22,6 +22,12 @@ used in `routes` ONLY. The route translates the outer-world DTO into a domain en
 service, and translates the returned entity back into a response DTO. Both `service` and `repository` work
 purely with ORM entities. This keeps everything below the API boundary decoupled from web-layer DTOs.
 
+**Cross-entity composition lives in the service.** When a response needs data from multiple entities, the
+service holds multiple repositories and combines them into a small domain aggregate (a plain `@dataclass`, NOT
+a schema or ORM entity) — see `PersonService.get_overview` joining Person + Membership and computing
+`is_premium`. The repositories stay single-entity; the join/business logic is the service's job; the route
+maps the aggregate to a response DTO.
+
 ## Folder structure
 
 `entities/` and `schemas/` are **shared domain models** used across layers (service +
@@ -34,7 +40,7 @@ app/
     dependencies.py      # shared deps: pagination, get_<x>_service, get_current_user chain
     routes/              # one router file per entity (person.py, auth.py, ...)
   service/               # business logic (PersonService, AuthService)
-  entities/              # SQLAlchemy ORM models — shared domain (person.py, user.py)
+  entities/              # SQLAlchemy ORM models — shared domain (person.py, user.py, membership.py)
   schemas/               # Pydantic DTOs (person.py, auth.py)
   persistence/           # storage layer only
     db/

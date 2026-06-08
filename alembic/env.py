@@ -8,7 +8,11 @@ from alembic import context
 # always target the same schema the app uses. Importing the entities registers
 # their tables on Base.metadata (add new entity imports here as the app grows).
 from app.core.settings import settings
-from app.entities import person, user  # noqa: F401  registers tables on Base
+from app.entities import (  # noqa: F401  registers tables on Base
+    membership,
+    person,
+    user,
+)
 from app.persistence.db.base_class import Base
 
 config = context.config

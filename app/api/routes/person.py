@@ -3,7 +3,12 @@ from fastapi import APIRouter, Depends, Query
 from app.api.dependencies import get_pagination_params, get_person_service
 from app.core.exceptions import get_not_found_exception
 from app.entities.person import Person
-from app.schemas.person import PersonCreate, PersonRead
+from app.schemas.person import (
+    MembershipRead,
+    PersonCreate,
+    PersonOverviewRead,
+    PersonRead,
+)
 from app.service.person_service import PersonService
 
 router = APIRouter(prefix="/persons", tags=["persons"])
@@ -39,3 +44,26 @@ async def find_by_email(
     if person is None:
         raise get_not_found_exception(detail="Person not found")
     return PersonRead.model_validate(person)
+
+
+@router.get("/{person_id}/overview", response_model=PersonOverviewRead)
+async def overview(
+    person_id: int,
+    service: PersonService = Depends(get_person_service),
+) -> PersonOverviewRead:
+    result = service.get_overview(person_id)
+    if result is None:
+        raise get_not_found_exception(detail="Person not found")
+    # Map the service aggregate -> response DTO at the route boundary.
+    return PersonOverviewRead(
+        id=result.person.id,
+        name=result.person.name,
+        age=result.person.age,
+        email=result.person.email,
+        is_premium=result.is_premium,
+        membership=(
+            MembershipRead.model_validate(result.membership)
+            if result.membership is not None
+            else None
+        ),
+    )
