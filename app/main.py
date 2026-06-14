@@ -9,6 +9,7 @@ from app.core.exceptions import AlreadyExistsError
 from app.core.logging import configure_logging, get_logger
 from app.core.metrics import setup_metrics
 from app.core.settings import settings
+from app.core.telemetry import configure_telemetry
 
 log = get_logger(__name__)
 
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(person_router)
 
     setup_metrics(app)  # exposes /metrics for Prometheus scraping
+    configure_telemetry(app)  # OTLP export to Grafana stack (no-op unless enabled)
 
     log.info("application started: %s", settings.app_title)
     return app

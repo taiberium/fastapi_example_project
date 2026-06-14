@@ -20,6 +20,11 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
+    # Observability (OpenTelemetry OTLP export — off unless explicitly enabled)
+    otel_enabled: bool = False
+    otel_service_name: str = "fastapi-example"
+    otel_exporter_otlp_endpoint: str = "http://localhost:4318"  # OTLP/HTTP base URL
+
     # Auth (Google OAuth2 sign-in -> app JWT session)
     google_client_id: str = ""  # set APP_GOOGLE_CLIENT_ID in real deployments
     secret_key: str = _DEV_SECRET  # set APP_SECRET_KEY in prod
