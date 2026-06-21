@@ -42,11 +42,11 @@ SessionLocal = sessionmaker(
 
 
 @contextmanager
-def session_scope() -> Iterator[Session]:
-    """Transactional session for non-HTTP contexts (Celery tasks): commit on
-    success, rollback on error, always close — the worker's unit of work, the
-    analog of TransactionMiddleware for code that runs outside a request."""
-    db = SessionLocal()
+def session_scope(session_factory: sessionmaker = SessionLocal) -> Iterator[Session]:
+    """The single unit of work, used by every entry point (HTTP middleware and
+    Celery tasks alike): commit on success, rollback on error, always close.
+    `session_factory` is injectable so tests can pass an in-memory maker."""
+    db = session_factory()
     try:
         yield db
         db.commit()
