@@ -75,6 +75,9 @@ app/
     queue/
       queue.py             # JobQueue port (Protocol) + get_job_queue() adapter binding
       celery_queue.py      # CeleryJobQueue: send_task by name
+    channel/
+      channel.py           # MessageChannel port — send a reply/event to a client
+      ws_channel.py        # WebSocketChannel: send_json over the connection
   service/                 # business logic (PersonService, AuthService) — transport-agnostic
   entities/                # SQLModel table models (person.py, ...) + base.py (Base = SQLModel)
   schemas/                 # Pydantic DTOs (person.py, auth.py, pagination.py)
@@ -202,8 +205,12 @@ Notes:
 
 - A WebSocket endpoint is a third inbound transport. It uses the **same FastAPI DI as an HTTP route** —
   `service: Annotated[PersonService, Depends(PersonService)]` — so it goes through the service, never repos.
-- `app/inbound/websocket/person_ws.py:/ws/persons` — client sends `{"person_id": N}`, server replies with the
-  overview. Registered in `create_app()` via `include_router`.
+- **WS is bidirectional → split by direction.** Receiving a message is *inbound* (the handler's `receive_json`
+  loop); **sending the reply is *outbound*** — behind the `MessageChannel` port (`outbound/channel/`), with a
+  `WebSocketChannel` adapter. The handler maps the domain aggregate → payload at the boundary (like an HTTP
+  route) and hands it to `channel.send(...)`; it never calls `websocket.send_json` directly.
+- `app/inbound/websocket/person_ws.py:/ws/persons` — client sends `{"person_id": N}`, the reply goes out via the
+  channel. Registered in `create_app()` via `include_router`.
 - Caveat: FastAPI resolves the dependency once per connection, so the session is held for the connection's
   lifetime. Fine here; for many long-lived connections switch to a per-message session (open one inside the
   receive loop) to avoid holding a pooled connection.
