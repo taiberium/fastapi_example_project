@@ -66,6 +66,8 @@ app/
     celery/
       base.py              # @inject: resolve a task's Annotated[..., Depends(...)] deps (FastAPI-style)
       person_tasks.py      # @celery_app.task definitions — the worker runs these (thin: delegate to service)
+    websocket/
+      person_ws.py         # WS endpoint; same Depends(Service) DI as an HTTP route
   outbound/                # driven adapters — we call out (named by role/port)
     persistence/
       db/                  # session.py (engine + SessionLocal + session_scope), db.py (get_db)
@@ -193,6 +195,18 @@ Notes:
 - `app/server.py:run()` calls `uvicorn.run("app.main:app", ...)` with host/port from settings and reload
   enabled when `settings.env` is `dev`/`test`. Root `main.py` just delegates to it.
 - **Worker**: `worker.py` exposes `celery_app`; run `poetry run celery -A worker.celery_app worker -l info`.
+  It also disposes the SQLAlchemy engine on `worker_process_init` (`engine.dispose(close=False)`) so each
+  forked prefork worker opens its own connection pool instead of sharing the parent's sockets.
+
+## WebSocket (inbound/websocket)
+
+- A WebSocket endpoint is a third inbound transport. It uses the **same FastAPI DI as an HTTP route** —
+  `service: Annotated[PersonService, Depends(PersonService)]` — so it goes through the service, never repos.
+- `app/inbound/websocket/person_ws.py:/ws/persons` — client sends `{"person_id": N}`, server replies with the
+  overview. Registered in `create_app()` via `include_router`.
+- Caveat: FastAPI resolves the dependency once per connection, so the session is held for the connection's
+  lifetime. Fine here; for many long-lived connections switch to a per-message session (open one inside the
+  receive loop) to avoid holding a pooled connection.
 
 ## Migrations (Alembic)
 

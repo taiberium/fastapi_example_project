@@ -10,6 +10,7 @@ from app.core.telemetry import configure_telemetry
 from app.inbound.http.routes.auth import router as auth_router
 from app.inbound.http.routes.health import router as health_router
 from app.inbound.http.routes.person import router as person_router
+from app.inbound.websocket.person_ws import router as person_ws_router
 
 log = get_logger(__name__)
 
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(person_router)
+    app.include_router(person_ws_router)
 
     setup_metrics(app)  # exposes /metrics for Prometheus scraping
     configure_telemetry(app)  # OTLP export to Grafana stack (no-op unless enabled)
