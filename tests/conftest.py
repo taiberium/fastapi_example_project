@@ -12,6 +12,7 @@ from app.entities import (  # noqa: F401  registers tables on SQLModel.metadata
     user,
 )
 from app.main import create_app
+from app.outbound.persistence.db.db import get_db
 from app.outbound.queue.queue import get_job_queue
 from tests.fakes import FakeJobQueue
 
@@ -46,10 +47,17 @@ def fake_queue() -> FakeJobQueue:
 
 @pytest.fixture()
 def client(fake_queue: FakeJobQueue) -> Generator[TestClient, None, None]:
-    # Point the transaction middleware at an in-memory DB; it owns the per-request
-    # session/commit, so there is nothing else to override.
     app = create_app()
-    app.state.db_sessionmaker = _make_test_sessionmaker()
+    test_sessionmaker = _make_test_sessionmaker()
+
+    def override_get_db() -> Generator[Session, None, None]:
+        db = test_sessionmaker()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
     # No broker in tests: swap the Celery queue for a no-op fake.
     app.dependency_overrides[get_job_queue] = lambda: fake_queue
     with TestClient(app) as test_client:

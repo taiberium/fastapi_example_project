@@ -43,13 +43,12 @@ SessionLocal = sessionmaker(
 
 @contextmanager
 def session_scope(session_factory: sessionmaker = SessionLocal) -> Iterator[Session]:
-    """The single unit of work, used by every entry point (HTTP middleware and
-    Celery tasks alike): commit on success, rollback on error, always close.
-    `session_factory` is injectable so tests can pass an in-memory maker."""
+    """Session lifecycle for non-HTTP entry points (Celery tasks): open, roll back
+    on error, always close. Commits happen at the repository (CRUD) level — the
+    same as the HTTP `get_db`. `session_factory` is injectable for tests."""
     db = session_factory()
     try:
         yield db
-        db.commit()
     except Exception:
         db.rollback()
         raise

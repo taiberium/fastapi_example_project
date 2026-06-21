@@ -10,8 +10,6 @@ from app.core.telemetry import configure_telemetry
 from app.inbound.http.routes.auth import router as auth_router
 from app.inbound.http.routes.health import router as health_router
 from app.inbound.http.routes.person import router as person_router
-from app.inbound.http.transaction import TransactionMiddleware
-from app.outbound.persistence.db.session import SessionLocal
 
 log = get_logger(__name__)
 
@@ -20,11 +18,6 @@ def create_app() -> FastAPI:
     # Schema is owned by Alembic migrations (`alembic upgrade head`), NOT created here.
     configure_logging()
     app = FastAPI(title=settings.app_title)
-
-    # One DB transaction per request; the middleware opens sessions from this maker
-    # (tests swap it for an in-memory one via app.state).
-    app.state.db_sessionmaker = SessionLocal
-    app.add_middleware(TransactionMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

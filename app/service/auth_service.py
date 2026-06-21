@@ -27,7 +27,7 @@ class AuthService:
             log.info("google login rejected: invalid/unverified/incomplete token")
             return None
 
-        user = self._get_or_create(claims)  # committed by TransactionMiddleware
+        user = self._get_or_create(claims)  # the repository commits the write
         token = security.create_access_token(subject=user.id)
         log.info("google login ok: user_id=%s", user.id)
         return user, token

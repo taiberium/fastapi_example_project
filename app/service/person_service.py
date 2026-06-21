@@ -45,7 +45,7 @@ class PersonService:
         self._queue = queue
 
     def create(self, person: Person) -> Person:
-        # Repo flushes; the request's transaction is committed by TransactionMiddleware.
+        # The repository commits the write (CRUD level).
         log.info("creating person email=%s", person.email)
         created = self._repository.create(person)
         # Business decision to do follow-up work async -> outbound queue port.
