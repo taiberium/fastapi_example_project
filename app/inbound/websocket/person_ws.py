@@ -1,26 +1,14 @@
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from app.core.logging import get_logger
-from app.outbound.channel.channel import MessageChannel
 from app.outbound.channel.ws_channel import WebSocketChannel
-from app.service.person_service import PersonOverview, PersonService
+from app.service.person_service import PersonService
 
 log = get_logger(__name__)
 
 router = APIRouter()
-
-
-def _overview_payload(overview: PersonOverview | None) -> dict[str, Any]:
-    # Map the domain aggregate -> response shape at the boundary (like an HTTP route).
-    if overview is None:
-        return {"error": "not found"}
-    return {
-        "id": overview.person.id,
-        "name": overview.person.name,
-        "is_premium": overview.is_premium,
-    }
 
 
 @router.websocket("/ws/persons")
@@ -29,13 +17,15 @@ async def persons_overview_ws(
     # Same DI as an HTTP route — go through the service, never repositories.
     service: Annotated[PersonService, Depends(PersonService)],
 ) -> None:
-    """Client sends `{"person_id": N}`; the reply is sent out via the channel port."""
+    """Client sends `{"person_id": N}`. Input -> service -> output: the handler only
+    receives and calls the service; the SERVICE pushes the reply via the channel."""
     await websocket.accept()
-    channel: MessageChannel = WebSocketChannel(websocket)  # outbound: sending replies
+    channel = WebSocketChannel(
+        websocket
+    )  # per-connection output port (handler owns the socket)
     try:
         while True:
-            message = await websocket.receive_json()  # inbound: receiving
-            overview = service.get_overview(int(message["person_id"]))
-            await channel.send(_overview_payload(overview))
+            message = await websocket.receive_json()
+            await service.push_overview(int(message["person_id"]), channel)
     except WebSocketDisconnect:
         log.info("persons ws disconnected")
