@@ -1,7 +1,7 @@
 from sqlmodel import Session
 
 from app.entities.person import Person
-from app.persistence.repository.person_repository import PersonRepository
+from app.outbound.persistence.repository.person_repository import PersonRepository
 
 
 def test_find_by_email_returns_matching_person(db_session: Session) -> None:

@@ -2,16 +2,15 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes.auth import router as auth_router
-from app.api.routes.health import router as health_router
-from app.api.routes.person import router as person_router
 from app.core.exceptions import AlreadyExistsError
 from app.core.logging import configure_logging, get_logger
 from app.core.metrics import setup_metrics
 from app.core.settings import settings
 from app.core.telemetry import configure_telemetry
-from app.persistence.db.session import SessionLocal
-from app.persistence.db.transaction import TransactionMiddleware
+from app.inbound.http.routes.auth import router as auth_router
+from app.inbound.http.routes.health import router as health_router
+from app.inbound.http.routes.person import router as person_router
+from app.inbound.websocket.person_ws import router as person_ws_router
 
 log = get_logger(__name__)
 
@@ -20,11 +19,6 @@ def create_app() -> FastAPI:
     # Schema is owned by Alembic migrations (`alembic upgrade head`), NOT created here.
     configure_logging()
     app = FastAPI(title=settings.app_title)
-
-    # One DB transaction per request; the middleware opens sessions from this maker
-    # (tests swap it for an in-memory one via app.state).
-    app.state.db_sessionmaker = SessionLocal
-    app.add_middleware(TransactionMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
@@ -46,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(person_router)
+    app.include_router(person_ws_router)
 
     setup_metrics(app)  # exposes /metrics for Prometheus scraping
     configure_telemetry(app)  # OTLP export to Grafana stack (no-op unless enabled)

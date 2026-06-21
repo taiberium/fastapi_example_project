@@ -6,7 +6,7 @@ from app.core import security
 from app.core.exceptions import AlreadyExistsError
 from app.core.logging import get_logger
 from app.entities.user import User
-from app.persistence.repository.user_repository import UserRepository
+from app.outbound.persistence.repository.user_repository import UserRepository
 
 log = get_logger(__name__)
 
@@ -27,7 +27,7 @@ class AuthService:
             log.info("google login rejected: invalid/unverified/incomplete token")
             return None
 
-        user = self._get_or_create(claims)  # committed by TransactionMiddleware
+        user = self._get_or_create(claims)  # the repository commits the write
         token = security.create_access_token(subject=user.id)
         log.info("google login ok: user_id=%s", user.id)
         return user, token

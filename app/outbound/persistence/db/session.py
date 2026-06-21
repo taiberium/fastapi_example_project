@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, create_engine
@@ -36,3 +39,18 @@ SessionLocal = sessionmaker(
     bind=engine,
     class_=Session,
 )
+
+
+@contextmanager
+def session_scope(session_factory: sessionmaker = SessionLocal) -> Iterator[Session]:
+    """Session lifecycle for non-HTTP entry points (Celery tasks): open, roll back
+    on error, always close. Commits happen at the repository (CRUD) level — the
+    same as the HTTP `get_db`. `session_factory` is injectable for tests."""
+    db = session_factory()
+    try:
+        yield db
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

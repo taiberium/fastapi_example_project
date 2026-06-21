@@ -7,8 +7,10 @@ from fastapi import Depends
 from app.core.logging import get_logger
 from app.entities.membership import Membership
 from app.entities.person import Person
-from app.persistence.repository.membership_repository import MembershipRepository
-from app.persistence.repository.person_repository import PersonRepository
+from app.outbound.channel.channel import MessageChannel
+from app.outbound.persistence.repository.membership_repository import MembershipRepository
+from app.outbound.persistence.repository.person_repository import PersonRepository
+from app.outbound.queue.queue import JobQueue, get_job_queue
 
 log = get_logger(__name__)
 
@@ -37,14 +39,19 @@ class PersonService:
         membership_repository: Annotated[
             MembershipRepository, Depends(MembershipRepository)
         ],
+        queue: Annotated[JobQueue, Depends(get_job_queue)],
     ):
         self._repository = repository
         self._memberships = membership_repository
+        self._queue = queue
 
     def create(self, person: Person) -> Person:
-        # Repo flushes; the request's transaction is committed by TransactionMiddleware.
+        # The repository commits the write (CRUD level).
         log.info("creating person email=%s", person.email)
-        return self._repository.create(person)
+        created = self._repository.create(person)
+        # Business decision to do follow-up work async -> outbound queue port.
+        self._queue.enqueue_recompute_overview(created.id)
+        return created
 
     def find_younger_than(
         self, age: int, skip: int = 0, limit: int = 100
@@ -55,6 +62,20 @@ class PersonService:
     def find_by_email(self, email: str) -> Person | None:
         log.info("finding person by email=%s", email)
         return self._repository.find_by_email(email)
+
+    async def push_overview(self, person_id: int, channel: MessageChannel) -> None:
+        # Input -> service -> output: the SERVICE drives the send through the port.
+        overview = self.get_overview(person_id)
+        if overview is None:
+            await channel.send({"error": "not found"})
+        else:
+            await channel.send(
+                {
+                    "id": overview.person.id,
+                    "name": overview.person.name,
+                    "is_premium": overview.is_premium,
+                }
+            )
 
     def get_overview(self, person_id: int) -> PersonOverview | None:
         # Combine Person + Membership here (two repositories, one aggregate).

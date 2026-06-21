@@ -4,8 +4,8 @@ from fastapi import Depends
 from sqlmodel import Session
 
 from app.entities.membership import Membership
-from app.persistence.db.db import get_db
-from app.persistence.repository.crud_repository import CRUDRepository
+from app.outbound.persistence.db.db import get_db
+from app.outbound.persistence.repository.crud_repository import CRUDRepository
 
 
 class MembershipRepository(CRUDRepository[Membership]):

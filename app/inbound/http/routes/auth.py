@@ -2,8 +2,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.guards import CurrentActiveUser
 from app.core.exceptions import get_credential_exception
+from app.inbound.http.guards import CurrentActiveUser
 from app.schemas.auth import GoogleLoginRequest, Token, UserRead
 from app.service.auth_service import AuthService
 
