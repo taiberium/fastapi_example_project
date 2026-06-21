@@ -2,16 +2,16 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes.auth import router as auth_router
-from app.api.routes.health import router as health_router
-from app.api.routes.person import router as person_router
 from app.core.exceptions import AlreadyExistsError
 from app.core.logging import configure_logging, get_logger
 from app.core.metrics import setup_metrics
 from app.core.settings import settings
 from app.core.telemetry import configure_telemetry
-from app.persistence.db.session import SessionLocal
-from app.persistence.db.transaction import TransactionMiddleware
+from app.inbound.http.routes.auth import router as auth_router
+from app.inbound.http.routes.health import router as health_router
+from app.inbound.http.routes.person import router as person_router
+from app.inbound.http.transaction import TransactionMiddleware
+from app.outbound.persistence.db.session import SessionLocal
 
 log = get_logger(__name__)
 

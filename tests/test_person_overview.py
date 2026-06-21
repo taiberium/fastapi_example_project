@@ -3,9 +3,10 @@ from sqlmodel import Session
 
 from app.entities.membership import Membership
 from app.entities.person import Person
-from app.persistence.repository.membership_repository import MembershipRepository
-from app.persistence.repository.person_repository import PersonRepository
+from app.outbound.persistence.repository.membership_repository import MembershipRepository
+from app.outbound.persistence.repository.person_repository import PersonRepository
 from app.service.person_service import PersonService
+from tests.fakes import FakeJobQueue
 
 
 def _service(
@@ -13,7 +14,8 @@ def _service(
 ) -> tuple[PersonService, PersonRepository, MembershipRepository]:
     persons = PersonRepository(db_session)
     memberships = MembershipRepository(db_session)
-    return PersonService(persons, memberships), persons, memberships
+    service = PersonService(persons, memberships, FakeJobQueue())
+    return service, persons, memberships
 
 
 # --- service-level join (the point of the feature) ---

@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 
+from tests.fakes import FakeJobQueue
+
 
 def test_save_person_returns_created_person(client: TestClient) -> None:
     response = client.post(
@@ -13,6 +15,17 @@ def test_save_person_returns_created_person(client: TestClient) -> None:
     assert body["name"] == "Alice"
     assert body["age"] == 30
     assert body["email"] == "alice@example.com"
+
+
+def test_create_enqueues_recompute_overview(
+    client: TestClient, fake_queue: FakeJobQueue
+) -> None:
+    pid = client.post(
+        "/persons", json={"name": "Bg", "age": 21, "email": "bg@example.com"}
+    ).json()["id"]
+
+    # Service dispatched the follow-up job through the outbound queue port.
+    assert fake_queue.recompute_overview_calls == [pid]
 
 
 def test_save_person_rejects_malformed_email(client: TestClient) -> None:

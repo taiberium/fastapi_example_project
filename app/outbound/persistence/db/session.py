@@ -1,3 +1,6 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, create_engine
@@ -36,3 +39,19 @@ SessionLocal = sessionmaker(
     bind=engine,
     class_=Session,
 )
+
+
+@contextmanager
+def session_scope() -> Iterator[Session]:
+    """Transactional session for non-HTTP contexts (Celery tasks): commit on
+    success, rollback on error, always close — the worker's unit of work, the
+    analog of TransactionMiddleware for code that runs outside a request."""
+    db = SessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

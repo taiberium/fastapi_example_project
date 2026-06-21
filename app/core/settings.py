@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     otel_service_name: str = "fastapi-example"
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"  # OTLP/HTTP base URL
 
+    # Celery (background jobs). Broker = Redis by default; result backend off
+    # unless set (fire-and-forget). Swap the broker URL or the adapter for RabbitMQ.
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = ""  # empty -> no result tracking
+
     # Auth (Google OAuth2 sign-in -> app JWT session)
     google_client_id: str = ""  # set APP_GOOGLE_CLIENT_ID in real deployments
     secret_key: str = _DEV_SECRET  # set APP_SECRET_KEY in prod

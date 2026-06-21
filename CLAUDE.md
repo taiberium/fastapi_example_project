@@ -2,20 +2,29 @@
 
 Guidance for working in this repo. Follow these patterns when adding or changing code.
 
-## Layered architecture
+## Layered architecture (ports & adapters)
 
-Three layers, each depends only on the one below — never skip or reverse direction:
+The app core (`service/`) is transport-agnostic. Everything that touches the outside world is an
+**adapter**, split by direction:
 
 ```
-api (routes)  →  service  →  repository  →  db (session)
+inbound/  (driving: how the world calls in)  →  service/  →  outbound/  (driven: how we call out)
+   http/ (FastAPI)                                              persistence/ (DB)
+   celery/ (Celery worker)                                     queue/ (enqueue jobs)
+   websocket/ ...                                              clients/ ... (future)
 ```
 
-- **api/** — incoming world: FastAPI routers. **The route is the only place that maps
-  schema ↔ entity** (`Entity(**data.model_dump())` on the way in, `XRead.model_validate(entity)` on the way out).
-- **service/** — business logic, orchestrates repositories. **Operates on entities only —
-  schemas never reach this layer.**
-- **repository/** — outgoing data access. SQLModel `session.exec(select(...))` queries on **entities only** — no business rules, no schemas.
-- A router must NOT touch a repository or a `Session` directly — always go through a service.
+- **inbound/** — driving adapters, one folder per **transport** (`http`, `celery`, `websocket`). Thin:
+  translate the incoming request/message into a service call and map the result back. **Named by transport**
+  (concrete entrypoints). `inbound/http` is the only place that maps schema ↔ entity
+  (`Entity(**data.model_dump())` in, `XRead.model_validate(entity)` out).
+- **service/** — business logic, orchestrates repositories + outbound ports. **Operates on entities only —
+  schemas never reach this layer.** Knows nothing about HTTP or Celery.
+- **outbound/** — driven adapters, **named by role/port** (`persistence`, `queue`), with the concrete tech
+  hidden inside (SQLModel, Celery). The service depends on the abstraction, so the tech is swappable.
+  - **outbound/persistence/repository/** — data access: SQLModel `session.exec(select(...))` on **entities only**.
+  - **outbound/queue/** — the `JobQueue` port + a `CeleryJobQueue` adapter (enqueue background work).
+- An inbound adapter must NOT touch a repository or `Session` directly — always go through a service.
 
 **Self-wiring DI (class-based dependencies).** There is NO central `dependencies.py`. Each class declares
 its own dependencies in its `__init__` via `Annotated[..., Depends(...)]`, so it is usable as a FastAPI
@@ -45,53 +54,48 @@ maps the aggregate to a response DTO.
 
 ## Folder structure
 
-`entities/` and `schemas/` are **shared domain models** used across layers (service +
-persistence), so they sit at the top level — NOT inside `persistence/`. `persistence/`
-holds only the storage infrastructure (`db/`) and data access (`repository/`).
+`entities/` and `schemas/` are **shared domain models** used across layers, so they sit at the top level.
+Adapters are grouped by direction under `inbound/` and `outbound/`.
 
 ```
 app/
-  api/
-    guards.py            # auth guards as class-based deps: CurrentUser → CurrentActiveUser → CurrentSuperuser
-    routes/              # one router file per entity (person.py, auth.py, ...); holds route-level Annotated aliases
-  service/               # business logic (PersonService, AuthService)
-  entities/              # SQLModel table models — shared domain (person.py, user.py, membership.py)
-    base.py              # Base = SQLModel (shared declarative base + metadata for all table models)
-  schemas/               # Pydantic DTOs (person.py, auth.py, pagination.py — incl. request DTOs like PaginationParams)
-  persistence/           # storage layer only
-    db/
-      session.py         # engine (production pool config) + SessionLocal + get_engine builder
-      db.py              # get_db() dependency — returns the request-scoped session from request.state
-      transaction.py     # TransactionMiddleware: one tx per request (commit on 2xx, else rollback, always close)
-    repository/
-      crud_repository.py   # generic CRUDRepository[ORMModel] — holds the Session; subclasses self-wire get_db
-      person_repository.py # class PersonRepository(CRUDRepository[Person])
-      user_repository.py   # class UserRepository(CRUDRepository[User])
-  core/                # infrastructure bucket (NOT just settings values)
-    settings.py          #   the VALUES: pydantic-settings BaseSettings (env-driven)
-    security.py          #   JWT issue/decode + Google ID-token verification
-    exceptions.py        #   HTTPException helpers + app exceptions
-    logging.py           #   configure_logging() + get_logger()
-  server.py              # uvicorn runner (host/port/reload from settings)
-  main.py                # create_app() factory, includes routers
-main.py                  # entrypoint → delegates to app.server.run()
-alembic/                 # migrations (env.py wired to settings + Base.metadata)
-tests/                   # pytest; conftest overrides get_db with in-memory sqlite
+  inbound/                 # driving adapters — the world calls in (named by transport)
+    http/
+      routes/              # one router file per entity (person.py, auth.py, ...); route-level Annotated aliases
+      guards.py            # auth guards: CurrentUser → CurrentActiveUser → CurrentSuperuser
+      transaction.py       # TransactionMiddleware: one tx per request (commit on 2xx, else rollback, close)
+    celery/
+      person_tasks.py      # @celery_app.task definitions — the worker runs these (thin: delegate to service)
+  outbound/                # driven adapters — we call out (named by role/port)
+    persistence/
+      db/                  # session.py (engine + SessionLocal + session_scope), db.py (get_db)
+      repository/          # crud_repository.py + per-entity repos
+    queue/
+      queue.py             # JobQueue port (Protocol) + get_job_queue() adapter binding
+      celery_queue.py      # CeleryJobQueue: send_task by name
+  service/                 # business logic (PersonService, AuthService) — transport-agnostic
+  entities/                # SQLModel table models (person.py, ...) + base.py (Base = SQLModel)
+  schemas/                 # Pydantic DTOs (person.py, auth.py, pagination.py)
+  core/                    # infra bucket: settings, security, exceptions, logging, metrics, telemetry,
+                           #   celery_app.py (Celery instance), task_names.py (producer/consumer contract)
+  server.py                # uvicorn runner;  main.py  # create_app() factory
+main.py                    # API entrypoint → app.server.run()
+worker.py                  # Celery worker entrypoint (celery -A worker.celery_app worker)
+alembic/                   # migrations (env.py wired to settings + Base.metadata)
+tests/                     # pytest; conftest points the middleware at in-memory sqlite + fakes the queue
 ```
 
 Notes:
-- `entities/` is top-level because `service/` references entities — a layer must not reach into
-  `persistence/` internals to get them.
-- **`core/` is the infrastructure bucket** (broad sense of "config" = how the app is configured/assembled):
-  settings VALUES + cross-cutting BEHAVIOR (security, exceptions, logging). The one rule inside it: keep
-  `settings.py` (values, from env) clearly separate from the behavior modules. What does NOT belong in
-  `core/`: domain (`entities`), business logic (`service`), data access (`persistence`), routes (`api`).
-- DB infrastructure (engine/session) stays in `persistence/db/`; DI is self-wired in each class's `__init__`
-  (no central wiring module) — those are layer-specific, not app-wide config.
+- **inbound is named by transport** (concrete entrypoints, nothing to abstract); **outbound is named by role**
+  (`persistence`, `queue`) with the tech hidden inside — that asymmetry is deliberate and enables swaps.
+- **`core/` is the infrastructure bucket**: settings VALUES + cross-cutting BEHAVIOR (security, exceptions,
+  logging, metrics, telemetry, the Celery instance, the task-name contract). Keep `settings.py` (values) separate
+  from behavior. What does NOT belong: domain (`entities`), business logic (`service`), adapters (`inbound`/`outbound`).
+- DI is self-wired in each class's `__init__` (no central wiring module).
 
 ## Repository pattern (generic CRUD)
 
-- `app/persistence/repository/crud_repository.py` holds a generic `CRUDRepository[ORMModel]` (generic in the ORM model
+- `app/outbound/persistence/repository/crud_repository.py` holds a generic `CRUDRepository[ORMModel]` (generic in the ORM model
   only) with `get_one`, `get_many`, `create`, `update`, `delete`.
 - **The repository holds the Session** and is constructed **per request** — NOT a singleton. The generic base
   takes `(model, session)`; the per-entity subclass self-wires the session via `Depends(get_db)`.
@@ -105,7 +109,7 @@ Notes:
 
 ## Database / sessions
 
-- **One transaction per request, owned by `TransactionMiddleware`** (`app/persistence/db/transaction.py`). It
+- **One transaction per request, owned by `TransactionMiddleware`** (`app/inbound/http/transaction.py`). It
   opens a session from `app.state.db_sessionmaker`, exposes it on `request.state.db`, then on the way out
   **commits** a successful (`<400`) response, **rolls back** otherwise, and always **closes**. On an unhandled
   exception it rolls back and re-raises. This is the unit of work.
@@ -113,7 +117,7 @@ Notes:
   every write in a request shares the one transaction, so multi-write use-cases are atomic automatically. The
   commit runs *inside* request handling (not a `yield` teardown), so a failed commit surfaces as a real HTTP
   500 — not a `200` sent before the teardown runs.
-- `get_db()` (in `app/persistence/db/db.py`) is a tiny dependency that just returns `request.state.db`. Repos
+- `get_db()` (in `app/outbound/persistence/db/db.py`) is a tiny dependency that just returns `request.state.db`. Repos
   self-wire it (`Annotated[Session, Depends(get_db)]`); the service holds repositories, never a raw `Session`.
 - **Repositories flush, they do NOT commit.** `CRUDRepository._flush()` calls `session.flush()` inside each
   `create`/`update`/`delete` — populates autogenerated PKs and surfaces unique violations immediately
@@ -121,16 +125,17 @@ Notes:
 - The session source is `app.state.db_sessionmaker` (set to `SessionLocal` in `create_app`); **tests swap it for
   an in-memory maker** via `app.state.db_sessionmaker = ...` — no `get_db` override needed.
 - `Session` is **SQLModel's** `Session` (`from sqlmodel import Session`), a SQLAlchemy `Session` subclass.
-- **Caveat:** request-scoped session — `BackgroundTasks` that touch the DB run after the commit/close, so they
-  must open their own session. (And `BaseHTTPMiddleware` buffers streaming responses; fine for the JSON API.)
+- **Caveat:** request-scoped session — for DB work outside a request use Celery tasks with `session_scope()`,
+  not FastAPI `BackgroundTasks` (those run after commit/close). (And `BaseHTTPMiddleware` buffers streaming
+  responses; fine for the JSON API.)
 - `Base` lives in `app/entities/base.py` and is just `Base = SQLModel` — the shared declarative
   base + metadata for every table model (one import site for alembic/tests). It sits in `entities/`
-  (not `persistence/`) because it is the parent of the domain models, so entities never reach down into
-  the storage layer for it.
+  (not `outbound/persistence/`) because it is the parent of the domain models, so entities never reach down
+  into the storage layer for it.
 - **ORM is SQLModel.** Entities are `class X(Base, table=True)` with `Field(...)`; the PK is
   `id: int = Field(default=None, primary_key=True)`. Repository reads use `session.exec(select(Model)...)`
   (SQLModel's typed `exec`, NOT the deprecated `session.query`).
-- **Engine/pool** (`app/persistence/db/session.py:get_engine`): production pool hardening from settings —
+- **Engine/pool** (`app/outbound/persistence/db/session.py:get_engine`): production pool hardening from settings —
   `pool_pre_ping`, `pool_recycle`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_reset_on_return="rollback"`,
   `pool_use_lifo`. QueuePool tuning is applied only for real servers; sqlite gets `check_same_thread=False` +
   pre_ping/recycle. All knobs are env-driven (`APP_DB_*`).
@@ -154,7 +159,7 @@ Notes:
   `AuthService` get-or-creates the `User` from the verified claims → issues an **app JWT** session token.
 - `app/core/security.py` owns crypto: `create_access_token` / `decode_access_token` (jose JWT, `settings.secret_key`)
   and `verify_google_id_token` (google-auth). No passwords / no bcrypt.
-- Protected endpoints depend on the class-based guard chain in `app/api/guards.py`:
+- Protected endpoints depend on the class-based guard chain in `app/inbound/http/guards.py`:
   `CurrentUser` → `CurrentActiveUser` → `CurrentSuperuser` (HTTPBearer → decode JWT → load user). Each guard
   resolves the user in its `__init__` and exposes it as `.user`; routes read `guard.user`.
 - HTTP error helpers live in `app/core/exceptions.py` (`get_credential_exception`, `get_not_found_exception`).
@@ -169,10 +174,28 @@ Notes:
 - `/metrics` is internal — scrape it with Prometheus inside the network, don't expose publicly.
 - No Prometheus/Grafana infra in-repo yet (app-side only); add docker-compose if/when needed.
 
+## Background jobs (Celery)
+
+- **Celery is on both sides of the hexagon.** Consuming a task (the worker running it) is *inbound*; enqueuing
+  a job (`.delay`/`send_task`) is *outbound*. Keep them apart.
+- **Producing** — `outbound/queue/`: services depend on the `JobQueue` **port** (`queue.py`), never on Celery.
+  The `CeleryJobQueue` adapter (`celery_queue.py`) enqueues by **task name** via `celery_app.send_task(...)`,
+  so it never imports the task definition → producer and worker stay decoupled. `get_job_queue()` is the single
+  place binding the port to the adapter (swap here for RabbitMQ etc.).
+- **Consuming** — `inbound/celery/`: `@celery_app.task` functions, thin like routes — open a
+  `session_scope()` (the worker's unit of work), build the service, delegate. Business logic stays in `service/`.
+- **Contract** — task-name constants in `core/task_names.py`, imported by both sides (no inbound↔outbound import).
+- **Instance/config** — `core/celery_app.py` (broker = `settings.celery_broker_url`, Redis by default; result
+  backend off unless `settings.celery_result_backend` set). Tasks listed in `include=[...]`.
+- **Transactions**: tasks use `session_scope()` (commit/rollback/close), NOT the HTTP middleware. DI: tasks
+  build repos/services manually (`PersonRepository(db)`) — FastAPI `Depends` only resolves under HTTP.
+- **Tests**: no broker — `conftest` overrides `get_job_queue` with `tests/fakes.py:FakeJobQueue` and asserts on it.
+
 ## Server entrypoint
 
 - `app/server.py:run()` calls `uvicorn.run("app.main:app", ...)` with host/port from settings and reload
   enabled when `settings.env` is `dev`/`test`. Root `main.py` just delegates to it.
+- **Worker**: `worker.py` exposes `celery_app`; run `poetry run celery -A worker.celery_app worker -l info`.
 
 ## Migrations (Alembic)
 
@@ -194,11 +217,11 @@ Notes:
   `DEBUG`; startup/errors at `INFO`/`ERROR`. Don't log sensitive values (passwords, tokens).
 - `log_level` is configurable via `APP_LOG_LEVEL` env var.
 
-## API layer
+## HTTP layer (inbound/http)
 
 - **No `dependencies.py`.** DI is self-wired: services/repositories declare their deps in `__init__`, and
   routes depend on the service class directly (`Annotated[XService, Depends(XService)]`).
-- Auth guards are class-based dependencies in `app/api/guards.py` (`CurrentUser` → `CurrentActiveUser` →
+- Auth guards are class-based dependencies in `app/inbound/http/guards.py` (`CurrentUser` → `CurrentActiveUser` →
   `CurrentSuperuser`).
 - Pagination is a **pydantic DTO** `app/schemas/pagination.py:PaginationParams` (request input, stays
   query params). FastAPI 0.100 does NOT enforce a pydantic model's `Field(ge/gt)` when the model is used
@@ -207,17 +230,17 @@ Notes:
   validation, the schema is just the DTO. (A FastAPI upgrade to ≥0.115 would allow `Annotated[PaginationParams,
   Query()]` directly.)
 - Route-level `Annotated[...]` aliases live at the top of the route file that uses them.
-- One router file per entity under `app/api/routes/`, registered in `app/main.py` via `app.include_router(...)`.
+- One router file per entity under `app/inbound/http/routes/`, registered in `app/main.py` via `app.include_router(...)`.
 
 ## Adding a new entity (checklist)
 
 1. `entities/<x>.py` — ORM model.
 2. `schemas/<x>.py` — `XCreate`, `XRead` (add `XUpdate` only if there's an update endpoint).
-3. `persistence/repository/<x>_repository.py` — `class XRepository(CRUDRepository[X])` binding the model; self-wires
-   the session via `__init__(self, session: Annotated[Session, Depends(get_db)])`.
+3. `outbound/persistence/repository/<x>_repository.py` — `class XRepository(CRUDRepository[X])` binding the model;
+   self-wires the session via `__init__(self, session: Annotated[Session, Depends(get_db)])`.
 4. `service/<x>_service.py` — business logic; self-wires its repository via
    `__init__(self, repo: Annotated[XRepository, Depends(XRepository)])`; methods accept/return **entities** (no schemas).
-5. `api/routes/<x>.py` — router; add a route-level alias `XServiceDep = Annotated[XService, Depends(XService)]`;
+5. `inbound/http/routes/<x>.py` — router; add a route-level alias `XServiceDep = Annotated[XService, Depends(XService)]`;
    maps `XCreate → entity` and `entity → XRead` here; include it in `main.py`.
 6. `tests/test_<x>_api.py` — write tests FIRST (TDD).
 
