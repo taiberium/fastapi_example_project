@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = ""  # empty -> no result tracking
 
+    # Celery reliability. acks_late + reject_on_worker_lost: a task whose worker dies
+    # mid-run is redelivered instead of silently lost (default acks on receipt = lost).
+    # prefetch=1 keeps one unacked task per worker so redelivery is precise. Retries
+    # are bounded with exponential backoff to ride out transient failures without a
+    # poison loop. Caveat: a task that ALWAYS kills the worker redelivers forever.
+    celery_task_acks_late: bool = True
+    celery_task_reject_on_worker_lost: bool = True
+    celery_worker_prefetch_multiplier: int = 1
+    celery_task_max_retries: int = 3
+    celery_task_retry_backoff: int = 5  # seconds; exponential base, jittered
+
     # Auth (Google OAuth2 sign-in -> app JWT session)
     google_client_id: str = ""  # set APP_GOOGLE_CLIENT_ID in real deployments
     secret_key: str = _DEV_SECRET  # set APP_SECRET_KEY in prod

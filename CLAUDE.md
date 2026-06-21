@@ -185,13 +185,17 @@ Notes:
   The `CeleryJobQueue` adapter (`celery_queue.py`) enqueues by **task name** via `celery_app.send_task(...)`,
   so it never imports the task definition → producer and worker stay decoupled. `get_job_queue()` is the single
   place binding the port to the adapter (swap here for RabbitMQ etc.).
-- **Consuming** — `inbound/celery/`: `@celery_app.task` functions, thin like routes — open a
-  `session_scope()` (the worker's unit of work), build the service, delegate. Business logic stays in `service/`.
+- **Consuming** — `inbound/celery/`: `@celery_app.task` functions, thin like routes — open a `session_scope()`,
+  `resolve(Service, db)` for the service, delegate. **Never touch repositories** — go through the service.
 - **Contract** — task-name constants in `core/task_names.py`, imported by both sides (no inbound↔outbound import).
 - **Instance/config** — `core/celery_app.py` (broker = `settings.celery_broker_url`, Redis by default; result
   backend off unless `settings.celery_result_backend` set). Tasks listed in `include=[...]`.
-- **Transactions**: tasks use `session_scope()` (commit/rollback/close), NOT the HTTP middleware. DI: tasks
-  build repos/services manually (`PersonRepository(db)`) — FastAPI `Depends` only resolves under HTTP.
+- **Same DI everywhere** — `core/di.py:resolve(Service, db)` reuses FastAPI's own resolver
+  (`solve_dependencies`) against a synthetic request whose `state.db = db`, so the SAME `Annotated[X, Depends(X)]`
+  self-wiring that routes use also wires services for tasks. No composition root, no hand-wiring. The symmetry:
+  HTTP = `TransactionMiddleware` (session_scope) + FastAPI resolves the route's deps; Celery = task opens
+  `session_scope` + `resolve()` runs the same resolver. (Caveat: `resolve` uses `asyncio.run` — fine for the
+  default prefork worker; revisit for async worker pools. It also leans on a FastAPI-internal API.)
 - **Tests**: no broker — `conftest` overrides `get_job_queue` with `tests/fakes.py:FakeJobQueue` and asserts on it.
 
 ## Server entrypoint
