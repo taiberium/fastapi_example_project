@@ -9,7 +9,7 @@ def run() -> None:
         "app.main:app",
         host=settings.server_host,
         port=settings.server_port,
-        reload=settings.env in {"dev", "test"},
+        reload=settings.env == "local",
     )
 
 

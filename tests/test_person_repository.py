@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 
 from app.entities.person import Person
 from app.persistence.repository.person_repository import PersonRepository

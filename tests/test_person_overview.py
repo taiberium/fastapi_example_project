@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 
 from app.entities.membership import Membership
 from app.entities.person import Person

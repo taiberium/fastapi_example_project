@@ -1,12 +1,12 @@
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlmodel import Field
 
-from app.persistence.db.base_class import Base
+from app.entities.base import Base
 
 
-class Person(Base):
+class Person(Base, table=True):
     __tablename__ = "person"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column()
-    age: Mapped[int] = mapped_column()
-    email: Mapped[str] = mapped_column(unique=True)
+    id: int = Field(default=None, primary_key=True)
+    name: str
+    age: int
+    email: str = Field(unique=True)

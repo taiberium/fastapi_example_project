@@ -18,3 +18,4 @@ repos:
           - pydantic
           - pydantic-settings
           - sqlalchemy[mypy]
+          - sqlmodel

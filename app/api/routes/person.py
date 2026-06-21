@@ -1,8 +1,10 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Query
 
-from app.api.dependencies import get_pagination_params, get_person_service
 from app.core.exceptions import get_not_found_exception
 from app.entities.person import Person
+from app.schemas.pagination import PaginationParams
 from app.schemas.person import (
     MembershipRead,
     PersonCreate,
@@ -14,10 +16,22 @@ from app.service.person_service import PersonService
 router = APIRouter(prefix="/persons", tags=["persons"])
 
 
+def get_pagination(
+    skip: int = Query(0, ge=0), limit: int = Query(10, gt=0)
+) -> PaginationParams:
+    # Query() does the ge/gt validation (FastAPI -> 422); the schema is the DTO.
+    return PaginationParams(skip=skip, limit=limit)
+
+
+# Route-level DI aliases — the service self-wires its repositories.
+PersonServiceDep = Annotated[PersonService, Depends(PersonService)]
+Pagination = Annotated[PaginationParams, Depends(get_pagination)]
+
+
 @router.post("", response_model=PersonRead, status_code=201)
 async def save(
     data: PersonCreate,
-    service: PersonService = Depends(get_person_service),
+    service: PersonServiceDep,
 ) -> PersonRead:
     # schema -> entity mapping stays at the route boundary, never in the service.
     person = service.create(Person(**data.model_dump()))
@@ -26,19 +40,18 @@ async def save(
 
 @router.get("", response_model=list[PersonRead])
 async def find(
+    pagination: Pagination,
+    service: PersonServiceDep,
     age: int = Query(ge=0),
-    pagination: tuple[int, int] = Depends(get_pagination_params),
-    service: PersonService = Depends(get_person_service),
 ) -> list[PersonRead]:
-    skip, limit = pagination
-    persons = service.find_younger_than(age, skip=skip, limit=limit)
+    persons = service.find_younger_than(age, skip=pagination.skip, limit=pagination.limit)
     return [PersonRead.model_validate(person) for person in persons]
 
 
 @router.get("/by-email", response_model=PersonRead)
 async def find_by_email(
     email: str,
-    service: PersonService = Depends(get_person_service),
+    service: PersonServiceDep,
 ) -> PersonRead:
     person = service.find_by_email(email)
     if person is None:
@@ -49,7 +62,7 @@ async def find_by_email(
 @router.get("/{person_id}/overview", response_model=PersonOverviewRead)
 async def overview(
     person_id: int,
-    service: PersonService = Depends(get_person_service),
+    service: PersonServiceDep,
 ) -> PersonOverviewRead:
     result = service.get_overview(person_id)
     if result is None:

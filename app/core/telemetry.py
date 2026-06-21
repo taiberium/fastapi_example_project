@@ -73,7 +73,5 @@ def configure_telemetry(app: FastAPI) -> bool:
     )
 
     _INSTRUMENTED = True
-    log.info(
-        "OpenTelemetry enabled -> %s (service=%s)", base, settings.otel_service_name
-    )
+    log.info("OpenTelemetry enabled -> %s (service=%s)", base, settings.otel_service_name)
     return True

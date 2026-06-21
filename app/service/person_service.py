@@ -1,5 +1,8 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Annotated
+
+from fastapi import Depends
 
 from app.core.logging import get_logger
 from app.entities.membership import Membership
@@ -30,13 +33,16 @@ class PersonService:
 
     def __init__(
         self,
-        repository: PersonRepository,
-        membership_repository: MembershipRepository,
-    ) -> None:
+        repository: Annotated[PersonRepository, Depends(PersonRepository)],
+        membership_repository: Annotated[
+            MembershipRepository, Depends(MembershipRepository)
+        ],
+    ):
         self._repository = repository
         self._memberships = membership_repository
 
     def create(self, person: Person) -> Person:
+        # Repo flushes; the request's transaction is committed by TransactionMiddleware.
         log.info("creating person email=%s", person.email)
         return self._repository.create(person)
 

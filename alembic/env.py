@@ -13,7 +13,7 @@ from app.entities import (  # noqa: F401  registers tables on Base
     person,
     user,
 )
-from app.persistence.db.base_class import Base
+from app.entities.base import Base
 
 config = context.config
 # NOTE: the URL is NOT written via config.set_main_option — that routes it through

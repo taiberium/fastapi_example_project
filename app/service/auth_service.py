@@ -1,3 +1,7 @@
+from typing import Annotated
+
+from fastapi import Depends
+
 from app.core import security
 from app.core.exceptions import AlreadyExistsError
 from app.core.logging import get_logger
@@ -10,7 +14,7 @@ log = get_logger(__name__)
 class AuthService:
     """Authentication business logic: Google sign-in -> app session token."""
 
-    def __init__(self, repository: UserRepository) -> None:
+    def __init__(self, repository: Annotated[UserRepository, Depends(UserRepository)]):
         self._repository = repository
 
     def login_with_google(self, id_token: str) -> tuple[User, str] | None:
@@ -23,7 +27,7 @@ class AuthService:
             log.info("google login rejected: invalid/unverified/incomplete token")
             return None
 
-        user = self._get_or_create(claims)
+        user = self._get_or_create(claims)  # committed by TransactionMiddleware
         token = security.create_access_token(subject=user.id)
         log.info("google login ok: user_id=%s", user.id)
         return user, token

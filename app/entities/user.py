@@ -1,14 +1,14 @@
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlmodel import Field
 
-from app.persistence.db.base_class import Base
+from app.entities.base import Base
 
 
-class User(Base):
+class User(Base, table=True):
     __tablename__ = "user"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(unique=True, index=True)
-    google_sub: Mapped[str] = mapped_column(unique=True, index=True)
-    full_name: Mapped[str] = mapped_column(default="")
-    is_active: Mapped[bool] = mapped_column(default=True)
-    is_superuser: Mapped[bool] = mapped_column(default=False)
+    id: int = Field(default=None, primary_key=True)
+    email: str = Field(unique=True, index=True)
+    google_sub: str = Field(unique=True, index=True)
+    full_name: str = Field(default="")
+    is_active: bool = Field(default=True)
+    is_superuser: bool = Field(default=False)

@@ -10,12 +10,27 @@ Three layers, each depends only on the one below — never skip or reverse direc
 api (routes)  →  service  →  repository  →  db (session)
 ```
 
-- **api/** — incoming world: FastAPI routers + dependency wiring. **The route is the only place that maps
+- **api/** — incoming world: FastAPI routers. **The route is the only place that maps
   schema ↔ entity** (`Entity(**data.model_dump())` on the way in, `XRead.model_validate(entity)` on the way out).
-- **service/** — business logic. Holds the `Session`, orchestrates repositories. **Operates on entities only —
+- **service/** — business logic, orchestrates repositories. **Operates on entities only —
   schemas never reach this layer.**
-- **repository/** — outgoing data access. SQLAlchemy queries on **entities only** — no business rules, no schemas.
+- **repository/** — outgoing data access. SQLModel `session.exec(select(...))` queries on **entities only** — no business rules, no schemas.
 - A router must NOT touch a repository or a `Session` directly — always go through a service.
+
+**Self-wiring DI (class-based dependencies).** There is NO central `dependencies.py`. Each class declares
+its own dependencies in its `__init__` via `Annotated[..., Depends(...)]`, so it is usable as a FastAPI
+dependency on its own:
+- a repository self-wires the request `Session`: `def __init__(self, session: Annotated[Session, Depends(get_db)])`;
+- a service self-wires its repositories: `def __init__(self, repo: Annotated[PersonRepository, Depends(PersonRepository)])`;
+- a route depends on the service directly: `service: Annotated[PersonService, Depends(PersonService)]`.
+
+FastAPI resolves the whole chain (service → repository → `get_db`) automatically. **Consequence:** `fastapi.Depends`
+is imported in `service/` and `repository/` constructors — this is an accepted, deliberate coupling to the web
+framework's DI, the price of deleting the wiring module. (Schemas still never appear below the route — see below.)
+
+**Use `Annotated[T, Depends(...)]` everywhere — never bare `x: T = Depends(...)` defaults.** Route-level type
+aliases (e.g. `PersonServiceDep = Annotated[PersonService, Depends(PersonService)]`) live at the top of the
+route file that uses them.
 
 **Schema ↔ entity mapping ALWAYS happens at the route level — never in the service.** Pydantic schemas are
 used in `routes` ONLY. The route translates the outer-world DTO into a domain entity before calling the
@@ -37,18 +52,19 @@ holds only the storage infrastructure (`db/`) and data access (`repository/`).
 ```
 app/
   api/
-    dependencies.py      # shared deps: pagination, get_<x>_service, get_current_user chain
-    routes/              # one router file per entity (person.py, auth.py, ...)
+    guards.py            # auth guards as class-based deps: CurrentUser → CurrentActiveUser → CurrentSuperuser
+    routes/              # one router file per entity (person.py, auth.py, ...); holds route-level Annotated aliases
   service/               # business logic (PersonService, AuthService)
-  entities/              # SQLAlchemy ORM models — shared domain (person.py, user.py, membership.py)
-  schemas/               # Pydantic DTOs (person.py, auth.py)
+  entities/              # SQLModel table models — shared domain (person.py, user.py, membership.py)
+    base.py              # Base = SQLModel (shared declarative base + metadata for all table models)
+  schemas/               # Pydantic DTOs (person.py, auth.py, pagination.py — incl. request DTOs like PaginationParams)
   persistence/           # storage layer only
     db/
-      base_class.py      # Base (DeclarativeBase) only
-      session.py         # engine, SessionLocal, get_engine builder
-      db.py              # get_db() generator dependency
+      session.py         # engine (production pool config) + SessionLocal + get_engine builder
+      db.py              # get_db() dependency — returns the request-scoped session from request.state
+      transaction.py     # TransactionMiddleware: one tx per request (commit on 2xx, else rollback, always close)
     repository/
-      base.py            # generic CRUDRepository[ORMModel] — holds the Session, built per request
+      crud_repository.py   # generic CRUDRepository[ORMModel] — holds the Session; subclasses self-wire get_db
       person_repository.py # class PersonRepository(CRUDRepository[Person])
       user_repository.py   # class UserRepository(CRUDRepository[User])
   core/                # infrastructure bucket (NOT just settings values)
@@ -70,32 +86,54 @@ Notes:
   settings VALUES + cross-cutting BEHAVIOR (security, exceptions, logging). The one rule inside it: keep
   `settings.py` (values, from env) clearly separate from the behavior modules. What does NOT belong in
   `core/`: domain (`entities`), business logic (`service`), data access (`persistence`), routes (`api`).
-- DB infrastructure (engine/session) stays in `persistence/db/`; request DI wiring stays in
-  `api/dependencies.py` — those are layer-specific, not app-wide config.
+- DB infrastructure (engine/session) stays in `persistence/db/`; DI is self-wired in each class's `__init__`
+  (no central wiring module) — those are layer-specific, not app-wide config.
 
 ## Repository pattern (generic CRUD)
 
-- `app/persistence/repository/base.py` holds a generic `CRUDRepository[ORMModel]` (generic in the ORM model
+- `app/persistence/repository/crud_repository.py` holds a generic `CRUDRepository[ORMModel]` (generic in the ORM model
   only) with `get_one`, `get_many`, `create`, `update`, `delete`.
-- **The repository holds the Session** (`__init__(self, model, session)`) and is constructed **per request** —
-  NOT a singleton. This keeps the Session a persistence detail: layers above the repository never touch SQLAlchemy.
+- **The repository holds the Session** and is constructed **per request** — NOT a singleton. The generic base
+  takes `(model, session)`; the per-entity subclass self-wires the session via `Depends(get_db)`.
 - Each entity gets a thin subclass that binds the model: `class PersonRepository(CRUDRepository[Person])` with
-  `__init__(self, session): super().__init__(Person, session)`. Entity-specific queries live there — that's the
-  reason the subclass exists (e.g. `PersonRepository.find_by_email`, built on the generic `get_one`).
+  `__init__(self, session: Annotated[Session, Depends(get_db)]): super().__init__(Person, session)`. Entity-specific
+  queries live there — that's the reason the subclass exists (e.g. `PersonRepository.find_by_email`, built on `get_one`).
 - **No schema coupling**: `create(db_obj)` takes a ready **entity**; `update(db_obj, values: dict)` takes a
   plain dict of fields. The **route** builds the entity from a schema (`Entity(**data.model_dump())`) — neither
   service nor repo imports Pydantic schemas.
-- `*args` → `.filter(...)` (expressions like `Person.age < age`); `**kwargs` → `.filter_by(...)` (equality).
+- `*args` → `.where(...)` (expressions like `Person.age < age`); `**kwargs` → `.filter_by(...)` (equality).
 
 ## Database / sessions
 
-- `get_db()` (in `app/persistence/db/db.py`) is the only session dependency: `db = SessionLocal(); try: yield db; finally: db.close()`.
-- **DI chain**: `get_db` → `get_<x>_repository(db)` (builds the repo with the session) → `get_<x>_service(repo)`
-  (builds the service with the repo). The **service holds a repository, never a `Session`**; only the
-  repository factory in `api/dependencies.py` references `Session`.
-- Never create a `Session()` ad hoc inside services/repositories — always flow from `get_db`.
-- `Base` lives in `app/persistence/db/base_class.py` (avoids circular imports between entities and the engine).
-- Use SQLAlchemy 2.0 typed style in entities: `Mapped[...]` + `mapped_column(...)`.
+- **One transaction per request, owned by `TransactionMiddleware`** (`app/persistence/db/transaction.py`). It
+  opens a session from `app.state.db_sessionmaker`, exposes it on `request.state.db`, then on the way out
+  **commits** a successful (`<400`) response, **rolls back** otherwise, and always **closes**. On an unhandled
+  exception it rolls back and re-raises. This is the unit of work.
+- **Forget-proof + atomic by design.** Routes and services NEVER call `commit` — it can't be forgotten, and
+  every write in a request shares the one transaction, so multi-write use-cases are atomic automatically. The
+  commit runs *inside* request handling (not a `yield` teardown), so a failed commit surfaces as a real HTTP
+  500 — not a `200` sent before the teardown runs.
+- `get_db()` (in `app/persistence/db/db.py`) is a tiny dependency that just returns `request.state.db`. Repos
+  self-wire it (`Annotated[Session, Depends(get_db)]`); the service holds repositories, never a raw `Session`.
+- **Repositories flush, they do NOT commit.** `CRUDRepository._flush()` calls `session.flush()` inside each
+  `create`/`update`/`delete` — populates autogenerated PKs and surfaces unique violations immediately
+  (`IntegrityError → AlreadyExistsError`, with a rollback). The middleware does the single commit. Reads never write.
+- The session source is `app.state.db_sessionmaker` (set to `SessionLocal` in `create_app`); **tests swap it for
+  an in-memory maker** via `app.state.db_sessionmaker = ...` — no `get_db` override needed.
+- `Session` is **SQLModel's** `Session` (`from sqlmodel import Session`), a SQLAlchemy `Session` subclass.
+- **Caveat:** request-scoped session — `BackgroundTasks` that touch the DB run after the commit/close, so they
+  must open their own session. (And `BaseHTTPMiddleware` buffers streaming responses; fine for the JSON API.)
+- `Base` lives in `app/entities/base.py` and is just `Base = SQLModel` — the shared declarative
+  base + metadata for every table model (one import site for alembic/tests). It sits in `entities/`
+  (not `persistence/`) because it is the parent of the domain models, so entities never reach down into
+  the storage layer for it.
+- **ORM is SQLModel.** Entities are `class X(Base, table=True)` with `Field(...)`; the PK is
+  `id: int = Field(default=None, primary_key=True)`. Repository reads use `session.exec(select(Model)...)`
+  (SQLModel's typed `exec`, NOT the deprecated `session.query`).
+- **Engine/pool** (`app/persistence/db/session.py:get_engine`): production pool hardening from settings —
+  `pool_pre_ping`, `pool_recycle`, `pool_size`, `max_overflow`, `pool_timeout`, `pool_reset_on_return="rollback"`,
+  `pool_use_lifo`. QueuePool tuning is applied only for real servers; sqlite gets `check_same_thread=False` +
+  pre_ping/recycle. All knobs are env-driven (`APP_DB_*`).
 
 ## Schemas (Pydantic)
 
@@ -105,7 +143,8 @@ Notes:
 - `XRead` sets `model_config = ConfigDict(from_attributes=True)`; convert with `XRead.model_validate(entity)`.
 - Validation belongs in the schema (`Field(ge=0)`, etc.), not in the router body.
 - Schemas are imported in `routes` ONLY — never in `service` or `repository`. The route owns both directions
-  of the schema ↔ entity mapping.
+  of the schema ↔ entity mapping. (Note: `fastapi.Depends` *does* appear in service/repository constructors
+  for self-wiring — that's DI, not schema coupling; the schema rule is unchanged.)
 
 ## Authentication & security
 
@@ -115,8 +154,9 @@ Notes:
   `AuthService` get-or-creates the `User` from the verified claims → issues an **app JWT** session token.
 - `app/core/security.py` owns crypto: `create_access_token` / `decode_access_token` (jose JWT, `settings.secret_key`)
   and `verify_google_id_token` (google-auth). No passwords / no bcrypt.
-- Protected endpoints depend on the chain in `api/dependencies.py`:
-  `get_current_user` → `get_current_active_user` → `get_current_superuser` (HTTPBearer → decode JWT → load user).
+- Protected endpoints depend on the class-based guard chain in `app/api/guards.py`:
+  `CurrentUser` → `CurrentActiveUser` → `CurrentSuperuser` (HTTPBearer → decode JWT → load user). Each guard
+  resolves the user in its `__init__` and exposes it as `.user`; routes read `guard.user`.
 - HTTP error helpers live in `app/core/exceptions.py` (`get_credential_exception`, `get_not_found_exception`).
 - Secrets come from settings/env (`APP_GOOGLE_CLIENT_ID`, `APP_SECRET_KEY`) — the defaults are dev-only and
   MUST be overridden in prod. Never log tokens.
@@ -141,6 +181,8 @@ Notes:
   `alembic.ini`. Import every entity in `env.py` so autogenerate sees its table.
 - Workflow after changing an ORM model: `alembic revision --autogenerate -m "..."` → review the file →
   `alembic upgrade head`. Always read the generated migration before applying (autogenerate is not perfect).
+- Entities are SQLModel, so autogenerated migrations reference `sqlmodel.sql.sqltypes.*` (e.g. `AutoString`);
+  `alembic/script.py.mako` already adds `import sqlmodel` so generated files import cleanly.
 - Tests don't use Alembic — `conftest` builds an in-memory schema via `Base.metadata.create_all` on its own engine.
 
 ## Logging
@@ -154,21 +196,30 @@ Notes:
 
 ## API layer
 
-- `app/api/dependencies.py` holds shared deps: `get_pagination_params(skip, limit) -> Tuple[int, int]` and
-  per-service providers `get_<entity>_service(db = Depends(get_db))`.
-- Auth deps (`get_token`, `get_current_user`, `get_current_active_user`, `get_current_superuser`) go here once a
-  `User` model exists — not added yet.
+- **No `dependencies.py`.** DI is self-wired: services/repositories declare their deps in `__init__`, and
+  routes depend on the service class directly (`Annotated[XService, Depends(XService)]`).
+- Auth guards are class-based dependencies in `app/api/guards.py` (`CurrentUser` → `CurrentActiveUser` →
+  `CurrentSuperuser`).
+- Pagination is a **pydantic DTO** `app/schemas/pagination.py:PaginationParams` (request input, stays
+  query params). FastAPI 0.100 does NOT enforce a pydantic model's `Field(ge/gt)` when the model is used
+  directly as a dependency (invalid values 500, not 422), so the route wires it through a tiny
+  `get_pagination(skip=Query(0,ge=0), limit=Query(10,gt=0)) -> PaginationParams` — `Query()` does the 422
+  validation, the schema is just the DTO. (A FastAPI upgrade to ≥0.115 would allow `Annotated[PaginationParams,
+  Query()]` directly.)
+- Route-level `Annotated[...]` aliases live at the top of the route file that uses them.
 - One router file per entity under `app/api/routes/`, registered in `app/main.py` via `app.include_router(...)`.
 
 ## Adding a new entity (checklist)
 
 1. `entities/<x>.py` — ORM model.
 2. `schemas/<x>.py` — `XCreate`, `XRead` (add `XUpdate` only if there's an update endpoint).
-3. `persistence/repository/<x>_repository.py` — `class XRepository(CRUDRepository[X])` binding the model.
-4. `service/<x>_service.py` — business logic, takes the **repository**; methods accept/return **entities** (no Session, no schemas).
-5. `api/dependencies.py` — add `get_<x>_repository(db)` and `get_<x>_service(repo)`.
-6. `api/routes/<x>.py` — router; maps `XCreate → entity` and `entity → XRead` here; include it in `main.py`.
-7. `tests/test_<x>_api.py` — write tests FIRST (TDD).
+3. `persistence/repository/<x>_repository.py` — `class XRepository(CRUDRepository[X])` binding the model; self-wires
+   the session via `__init__(self, session: Annotated[Session, Depends(get_db)])`.
+4. `service/<x>_service.py` — business logic; self-wires its repository via
+   `__init__(self, repo: Annotated[XRepository, Depends(XRepository)])`; methods accept/return **entities** (no schemas).
+5. `api/routes/<x>.py` — router; add a route-level alias `XServiceDep = Annotated[XService, Depends(XService)]`;
+   maps `XCreate → entity` and `entity → XRead` here; include it in `main.py`.
+6. `tests/test_<x>_api.py` — write tests FIRST (TDD).
 
 ## Workflow rules
 

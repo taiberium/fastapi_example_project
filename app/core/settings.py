@@ -7,12 +7,30 @@ _DEV_SECRET = "dev-insecure-change-me"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
 
-    database_url: str = "sqlite:///mydatabase.db"
     app_title: str = "Fast API Example App"
     log_level: str = "INFO"
 
+    # DB selection is env-driven: local -> sqlite, stg/prod -> postgresql.
+    # Set APP_DATABASE_URL to override the derived URL (e.g. in tests/CI); empty = derive.
+    database_url: str = ""
+    sqlite_path: str = "sqlite:///mydatabase.db"  # used only when env=local
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_user: str = ""
+    postgres_password: str = ""
+    postgres_db: str = "app"
+
+    # DB connection pool (production hardening, ignored for sqlite). pre_ping/recycle
+    # guard against stale connections after DB restarts/failover/idle reaping.
+    db_echo: bool = False
+    db_pool_pre_ping: bool = True
+    db_pool_recycle: int = 1800  # seconds; recycle before server-side idle timeout
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30  # seconds to wait for a connection from the pool
+
     # Server
-    env: str = "dev"  # dev | test | prod — controls auto-reload
+    env: str = "local"  # local | stg | prod — controls DB selection + auto-reload
     server_host: str = "0.0.0.0"
     server_port: int = 8000
     cors_origins: list[str] = [
@@ -30,6 +48,24 @@ class Settings(BaseSettings):
     secret_key: str = _DEV_SECRET  # set APP_SECRET_KEY in prod
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
+
+    @model_validator(mode="after")
+    def _resolve_database_url(self) -> "Settings":
+        # Only local runs on sqlite; stg/prod build a postgresql URL from APP_POSTGRES_*.
+        if self.database_url:
+            return self
+        if self.env == "local":
+            self.database_url = self.sqlite_path
+        else:
+            if not (self.postgres_user and self.postgres_password):
+                raise ValueError(
+                    f"env={self.env} requires APP_POSTGRES_USER and APP_POSTGRES_PASSWORD"
+                )
+            self.database_url = (
+                f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
+                f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _require_prod_secrets(self) -> "Settings":

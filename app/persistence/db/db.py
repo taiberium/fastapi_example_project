@@ -1,22 +1,8 @@
-from collections.abc import Generator
-
-from sqlalchemy.orm import Session
-
-from app.core.logging import get_logger
-from app.persistence.db.session import SessionLocal
-
-log = get_logger(__name__)
+from fastapi import Request
+from sqlmodel import Session
 
 
-def get_db() -> Generator[Session, None, None]:
-    """Yield a database session, closing it when the request finishes."""
-    log.debug("opening database session")
-    db = SessionLocal()
-    try:
-        yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        log.debug("closing database session")
-        db.close()
+def get_db(request: Request) -> Session:
+    """Return the request-scoped session. Its lifecycle (open/commit/rollback/
+    close) is owned by TransactionMiddleware — this just hands it to repositories."""
+    return request.state.db
